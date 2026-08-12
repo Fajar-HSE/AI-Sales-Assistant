@@ -267,6 +267,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
 .tag-chip button{border:none; background:none; color:inherit; font-size:12px; line-height:1; padding:0}
 .field-row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
 .modal-foot{display:flex; justify-content:flex-end; gap:8px; padding:14px 18px; border-top:1px solid var(--border)}
+/* ============ LOADING / ERROR / A11Y ============ */
+.spinner{width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:sp .8s linear infinite; flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading-wrap{display:flex; align-items:center; justify-content:center; gap:10px; color:var(--muted); font-size:12px; padding:30px 0}
+.error-state{display:flex; flex-direction:column; align-items:center; gap:10px; padding:30px 20px; color:var(--faint); font-size:12.5px; text-align:center}
+.btn:disabled{opacity:.55; cursor:not-allowed}
+.login-err{color:var(--red)}
+:focus-visible{outline:2px solid var(--primary); outline-offset:2px; border-radius:4px}
 /* ============ TOAST ============ */
 #toast{position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(80px); background:var(--ink); color:var(--bg); font-size:13px; font-weight:600; border-radius:99px; padding:10px 18px; box-shadow:var(--shadow); opacity:0; transition:all .25s ease; z-index:200; display:flex; align-items:center; gap:8px}
 #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
@@ -327,14 +335,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
       </button>
     </nav>
     <div class="side-foot">
-      <div class="proto-note">Prototype UI — semua angka adalah data simulasi</div>
+      <div class="proto-note">Live — terhubung ke backend &amp; API</div>
       <div class="user-row">
         <div class="avatar">F</div>
         <div class="user-meta">
           <div class="user-name">Fajar</div>
           <div class="user-role">Admin</div>
         </div>
-        <button class="icon-btn" onclick="toggleTheme()" title="Ganti tema" style="margin-left:auto">
+        <button class="icon-btn" id="logoutBtn" onclick="doLogout()" title="Keluar / ganti akun" aria-label="Keluar" style="margin-left:auto;margin-right:6px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+        </button>
+        <button class="icon-btn" onclick="toggleTheme()" title="Ganti tema" aria-label="Ganti tema">
           <svg id="themeIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         </button>
       </div>
@@ -344,7 +355,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
   <!-- ============ MAIN ============ -->
   <div class="main">
     <div class="topbar">
-      <button class="icon-btn" id="menuBtn" onclick="document.getElementById('sidebar').classList.add('open');document.getElementById('scrim').classList.add('show')" style="display:none">
+      <button class="icon-btn" id="menuBtn" onclick="document.getElementById('sidebar').classList.add('open');document.getElementById('scrim').classList.add('show')" style="display:none" aria-label="Buka menu">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
       <h1 id="pageTitle">Dashboard</h1>
@@ -499,14 +510,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
 </div>
 
 <!-- ============ MODAL EDIT DOCUMENT ============ -->
-<div class="modal-bg" id="docModal">
+<div class="modal-bg" id="docModal" role="dialog" aria-modal="true" aria-labelledby="docModalTitle">
   <div class="modal">
     <div class="modal-head">
       <h3 id="docModalTitle">Edit Document</h3>
-      <button class="icon-btn" onclick="closeDocModal()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      <button class="icon-btn" onclick="closeDocModal()" aria-label="Tutup" title="Tutup"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="modal-body">
-      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('docFile').click()">
+      <div class="upload-zone" id="uploadZone" role="button" tabindex="0" onclick="document.getElementById('docFile').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('docFile').click()}" aria-label="Upload file knowledge base">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2"/><path d="M17 2l5 5v5a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h4"/></svg>
         <div class="upload-text"><span class="uk">Upload file</span> atau klik untuk pilih</div>
         <input id="docFile" type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md" style="display:none" onchange="onFileSelect()">
@@ -523,7 +534,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- ============ MODAL LOGIN ============ -->
+<div class="modal-bg" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-head"><h3 id="loginTitle">Masuk — Sales AI Assistant</h3></div>
+    <div class="modal-body">
+      <div class="field"><label for="loginUser">Username</label><input id="loginUser" type="text" autocomplete="username" placeholder="admin"></div>
+      <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" placeholder="••••••••"></div>
+      <div class="login-err" id="loginErr" style="display:none;color:var(--red);font-size:12px;margin-top:8px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Masuk</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ============ STATE ============ */
@@ -561,7 +587,7 @@ function go(page){
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('scrim').classList.remove('show');
   if(page==='dashboard') renderActivity();
-  if(page==='inbox'){ renderChatList(); renderActiveChat(); }
+  if(page==='inbox'){ renderChatList(); renderActiveChat(); loadMessages(CUSTOMERS.find(x=>x.id===activeId)); }
   if(page==='kb') loadKb();
 }
 function toggleTheme(){
@@ -578,12 +604,21 @@ function fmtDur(sec){
   return (sec/60).toFixed(1)+' mnt';
 }
 function renderActivity(){ loadStats(); }
+function setLoading(el, msg){
+  if(el) el.innerHTML = `<div class="loading-wrap"><span class="spinner"></span>${esc(msg||'Memuat...')}</div>`;
+}
+function errState(el, msg, fn){
+  if(el) el.innerHTML = `<div class="error-state"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><div>${esc(msg||'Terjadi kesalahan')}</div><button class="btn btn-ghost btn-sm" onclick="${fn}()">Coba lagi</button></div>`;
+}
 function loadStats(){
+  const ids = ['statChat','statHot','statWarm','statCold','statResp'];
+  ids.forEach(i=>{ const el=document.getElementById(i); if(el && (el.textContent==='—'||el.dataset.loading)){ el.textContent='…'; el.dataset.loading='1'; } });
   apiFetch(apiBase()+'api/v1/stats')
     .then(r=>r.json())
     .then(resp=>{
-      if(!resp || resp.status!=='success' || !resp.data) return;
+      if(!resp || resp.status!=='success' || !resp.data) throw new Error('response invalid');
       const s = resp.data, total = s.total||0;
+      ids.forEach(i=>{ const el=document.getElementById(i); if(el) el.dataset.loading=''; });
       document.getElementById('statChat').textContent = s.chat_count||0;
       document.getElementById('statHot').textContent = s.hot||0;
       document.getElementById('statWarm').textContent = s.warm||0;
@@ -602,7 +637,10 @@ function loadStats(){
       renderStatsActivity(s.activity||[]);
       renderTopProducts(s.top_products||[]);
       renderRespTrend(s.response_trend||[]);
-    }).catch(e=>console.warn('[Stats] error:', e));
+    }).catch(e=>{
+      console.warn('[Stats] error:', e);
+      errState(document.getElementById('chatActivity'), 'Gagal memuat statistik', 'loadStats');
+    });
 }
 function renderStatsActivity(activity){
   const el = document.getElementById('chatActivity');
@@ -689,10 +727,30 @@ function setFilter(f, btn){
 function openChat(id){
   activeId = id;
   const c = CUSTOMERS.find(x=>x.id===id);
+  if(!c) return;
   c.unread = 0;
   document.getElementById('navUnread').textContent = CUSTOMERS.filter(x=>x.unread>0).length;
   renderChatList();
   renderActiveChat();
+  loadMessages(c);
+}
+function loadMessages(c){
+  if(!c || !c.phone) return;
+  apiFetch(apiBase()+'api/v1/customers/'+encodeURIComponent(c.phone)+'/messages')
+    .then(r=>r.json())
+    .then(resp=>{
+      if(!resp || resp.status!=='success' || !Array.isArray(resp.data)) return;
+      const hist = resp.data.filter(m=>m && m.d != null);
+      if(!hist.length) return;
+      const cur = CUSTOMERS.find(x=>x.id===c.id);
+      if(!cur) return;
+      if(hist.length >= (cur.msgs||[]).length){
+        cur.msgs = hist;
+        if(hist.length && hist[hist.length-1].d) cur.last = hist[hist.length-1].d.slice(0,60);
+        if(activeId===cur.id) renderActiveChat();
+        renderChatList();
+      }
+    }).catch(e=>console.warn('[History] load error:', e));
 }
 function renderActiveChat(){
   const c = CUSTOMERS.find(x=>x.id===activeId);
@@ -848,17 +906,22 @@ function feedback(up){
 
 /* ============ KB ============ */
 function loadKb(){
+  const body = document.getElementById('docBody');
+  if(!kbDocs.length) setLoading(body, 'Memuat dokumen knowledge base...');
   apiFetch(apiBase()+'api/v1/knowledge')
     .then(r=>r.json())
     .then(resp=>{
-      if(!resp || resp.status!=='success' || !resp.data) return;
+      if(!resp || resp.status!=='success' || !resp.data) throw new Error('response invalid');
       kbDocs = resp.data.docs || [];
       kbCats = resp.data.category_counts || {};
       kbTotalChunks = resp.data.total_chunks || 0;
       const dates = kbDocs.map(d=>new Date(d.uploaded_at||d.updated_at)).filter(d=>!isNaN(d)).sort((a,b)=>b-a);
       kbUpdated = dates.length ? fmtDate(dates[0]) : '—';
       renderDocs();
-    }).catch(e=>{ document.getElementById('docBody').innerHTML = '<tr><td colspan="5"><div class="empty-state">Gagal load KB: '+esc(e.message)+'</div></td></tr>'; });
+    }).catch(e=>{
+      console.warn('[KB] load error:', e);
+      body.innerHTML = '<tr><td colspan="5"><div class="empty-state">Gagal memuat knowledge base: '+esc(e.message)+'<br><br><button class="btn btn-ghost btn-sm" onclick="loadKb()">Coba lagi</button></div></td></tr>';
+    });
 }
 function fmtDate(d){
   const diff = Date.now() - d.getTime();
@@ -903,8 +966,8 @@ function renderDocs(){
       <td style="color:var(--muted)">${d.chunk_count||0}</td>
       <td class="doc-upd">${fmtDate(new Date(d.updated_at||d.uploaded_at))}</td>
       <td><div class="row-actions">
-        <button class="mini-btn" title="Edit" onclick="openDocModal('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
-        <button class="mini-btn danger" title="Hapus" onclick="deleteDoc('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        <button class="mini-btn" title="Edit" aria-label="Edit dokumen" onclick="openDocModal('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
+        <button class="mini-btn danger" title="Hapus" aria-label="Hapus dokumen" onclick="deleteDoc('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       </div></td>
     </tr>`).join('');
 }
@@ -934,6 +997,7 @@ function openDocModal(id){
   document.getElementById('uploadInfo').style.display = 'none';
   document.getElementById('uploadInfo').innerHTML = '';
   document.getElementById('docModal').classList.add('open');
+  setTimeout(()=>{ try{ document.getElementById('docTitle').focus(); }catch(e){} }, 50);
 }
 function closeDocModal(){ document.getElementById('docModal').classList.remove('open'); selectedFile = null; }
 function onFileSelect(){
@@ -1008,17 +1072,62 @@ function apiFetch(url, opts){
   const t = localStorage.getItem('apiToken');
   if(t) opts.headers['Authorization'] = 'Bearer ' + t;
   return fetch(url, opts).then(res=>{
-    if(res.status === 401 && !opts._retried){
-      const tok = prompt('Session API tidak valid / kedaluwarsa. Masukkan token admin (atau API token):');
-      if(tok && tok.trim()){
-        localStorage.setItem('apiToken', tok.trim());
-        opts._retried = true;
-        opts.headers['Authorization'] = 'Bearer ' + tok.trim();
-        return fetch(url, opts);
-      }
+    if(res.status === 401){
+      localStorage.removeItem('apiToken');
+      openLogin('Sesi tidak valid / kedaluwarsa. Silakan masuk kembali.');
     }
     return res;
   });
+}
+/* ============ LOGIN ============ */
+let loginOpen = false;
+function openLogin(msg){
+  loginOpen = true;
+  const err = document.getElementById('loginErr');
+  if(msg){ err.style.display = 'block'; err.textContent = msg; }
+  else err.style.display = 'none';
+  document.getElementById('loginModal').classList.add('open');
+  setTimeout(()=>{ try{ document.getElementById('loginUser').focus(); }catch(e){} }, 50);
+}
+function closeLogin(){
+  loginOpen = false;
+  document.getElementById('loginModal').classList.remove('open');
+}
+function doLogin(){
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Memeriksa...';
+  fetch(apiBase()+'api/v1/auth/login', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:u, password:p})
+  }).then(r=>r.json()).then(res=>{
+    if(res && res.token){
+      localStorage.setItem('apiToken', res.token);
+      closeLogin();
+      toast('Login berhasil');
+      refreshAll();
+    } else {
+      openLogin(res.detail || res.error || 'Gagal login. Periksa username/password.');
+    }
+  }).catch(e=>openLogin('Error: '+e.message))
+  .finally(()=>{ btn.disabled = false; btn.textContent = 'Masuk'; });
+}
+function doLogout(){
+  localStorage.removeItem('apiToken');
+  toast('Logout — sesi berakhir');
+  openLogin('Sesi berakhir. Masuk kembali untuk lanjut.');
+}
+function checkAuth(){
+  apiFetch(apiBase()+'health')
+    .then(r=>r.json())
+    .then(h=>{
+      if(h && h.auth_enabled && !localStorage.getItem('apiToken')) openLogin('Masuk untuk mengakses dashboard');
+    }).catch(()=>{});
+}
+function refreshAll(){
+  renderActivity(); loadCustomers(); loadKb(); loadHealth();
 }
 function catKey(cat, score){
   const m = {hot:'hot', warm:'warm', cold:'cold', 'Hot Lead':'hot', 'Warm Lead':'warm', 'Cold Lead':'cold'};
@@ -1029,7 +1138,7 @@ function loadCustomers(){
   apiFetch(apiBase()+'api/v1/customers')
     .then(r=>r.json())
     .then(list=>{
-      if(!Array.isArray(list) || !list.length) return;
+      if(!Array.isArray(list)) throw new Error('response invalid');
       const map = {};
       list.forEach(c=>{
         const cat = catKey(c.category, c.score);
@@ -1058,7 +1167,10 @@ function loadCustomers(){
       renderChatList();
       renderActiveChat();
       document.getElementById('navUnread').textContent = CUSTOMERS.filter(x=>x.unread>0).length;
-    }).catch(()=>{});
+    }).catch(e=>{
+      console.warn('[Customers] load error:', e);
+      toast('Gagal memuat inbox: '+(e.message||'koneksi bermasalah'));
+    });
 }
 function tickDate(){
   const d = new Date();
@@ -1234,6 +1346,13 @@ renderChatList();
 renderActiveChat();
 loadKb();
 loadCustomers();
+checkAuth();
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    if(loginOpen){ closeLogin(); }
+    else if(document.getElementById('docModal').classList.contains('open')){ closeDocModal(); }
+  }
+});
 </script>
 </body>
 </html>

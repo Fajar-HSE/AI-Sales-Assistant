@@ -97,6 +97,23 @@ def _append_log(entry: dict, cap: int = 500) -> None:
     if len(AI_LOGS) > cap:
         del AI_LOGS[:len(AI_LOGS) - cap]
 
+def _fmt_ts(ts):
+    """Format timestamp DB ke HH:MM (fallback aman)."""
+    if not ts:
+        return ""
+    try:
+        import datetime as _dt
+        if isinstance(ts, str):
+            parsed = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        else:
+            parsed = ts
+        if parsed.tzinfo is None:
+            return parsed.strftime("%H:%M")
+        return parsed.astimezone().strftime("%H:%M")
+    except Exception:
+        s = str(ts)
+        return s[11:16] if len(s) >= 16 else s
+
 async def _read_json(req: Request) -> dict:
     """Baca body JSON dengan aman; body invalid => 400 (bukan 500)."""
     try:
@@ -1123,7 +1140,40 @@ async def send_message(req: Request, _: None = Depends(auth_required)):
     if not _rate_limited(f"send:{client_ip}:{to}"):
         raise HTTPException(429, "Too many messages, please slow down")
     res = await fonnte_send(to, text)
+    # Persist pesan keluar (in-memory + Supabase)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if to in CUSTOMERS:
+        cust = CUSTOMERS[to]
+        cust.setdefault("msgs", []).append({"dir":"out","t":now.strftime("%H:%M"),"d":text})
+        cust["last"] = text[:60]
+        cust["unread"] = 0
+    save_chat_db(to, text, "out")
+    if HAS_SUPABASE and sb():
+        try:
+            sb().table("customers").update({
+                "last_message": text[:200],
+                "last_updated": now.isoformat()
+            }).eq("phone", to).execute()
+        except Exception as e:
+            log.warning("[Send] customer update error: %s", e)
     return {"status":"success","sent":res["status_code"]==200,"fonnte":res}
+
+@app.get("/api/v1/customers/{phone}/messages")
+async def customer_messages(phone: str, _: None = Depends(auth_required)):
+    """Riwayat chat satu customer (Supabase chats, fallback in-memory)."""
+    msgs = []
+    if HAS_SUPABASE and sb():
+        try:
+            rows = sb().table("chats").select("text,direction,timestamp").eq("phone", phone) \
+                .order("timestamp", desc=True).limit(200).execute().data or []
+            rows = list(reversed(rows))
+            msgs = [{"dir": (r.get("direction") or "in"), "t": _fmt_ts(r.get("timestamp")),
+                     "d": (r.get("text") or ""), "ts": r.get("timestamp")} for r in rows]
+        except Exception as e:
+            log.warning("[Messages] Supabase error: %s", e)
+    else:
+        msgs = (CUSTOMERS.get(phone) or {}).get("msgs") or []
+    return {"status":"success","data":msgs, "count": len(msgs)}
 
 @app.get("/api/v1/customers")
 async def list_customers(_: None = Depends(auth_required)):
@@ -1149,7 +1199,7 @@ async def list_customers(_: None = Depends(auth_required)):
                     "badge": row.get("badge") or "🔴",
                     "created": row.get("last_updated") or "",
                     "stage": "Awareness",
-                    "product": "Umum",
+                    "product": row.get("product") or "Umum",
                 })
         except Exception as e:
             log.warning("[Customers] Supabase error: %s", e)

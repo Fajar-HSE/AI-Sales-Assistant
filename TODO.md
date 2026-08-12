@@ -1,6 +1,6 @@
 # 📋 TODO — Sales AI Assistant (AI-Powered Sales Assistant for WhatsApp Business)
 
-**PRD:** v1.0 (2026-08-05) · **Status:** Iterasi v3 · **Update:** 2026-08-12
+**PRD:** v1.0 (2026-08-05) · **Status:** Iterasi v3 · **Update:** 2026-08-12 (v0.4.2)
 
 ## ✅ SUDAH DILAKUKAN
 
@@ -28,6 +28,13 @@
   - [x] Edit dokumen via `PUT /api/v1/knowledge/{id}` (re-chunk otomatis), hapus via `DELETE`, detail via `GET .../doc/{id}`
   - [x] Fix: `upload_knowledge` pakai `Form(...)` agar category/name terbaca (sebelumnya selalu default Umum)
   - [x] Fix: `process_incoming` simpan category/score/badge ke store in-memory (sebelumnya mutasi dict salinan)
+- [x] **Inbox persisten + Login UI + Loading/Error/A11y (v0.4.2)**
+  - [x] `send_message` kini simpan pesan keluar (in-memory + Supabase `chats` + update last_message customer)
+  - [x] Endpoint `GET /api/v1/customers/{phone}/messages` — riwayat chat per customer (Supabase fallback in-memory)
+  - [x] Inbox load riwayat chat saat chat dibuka (`loadMessages`), pesan keluar muncul lagi setelah refresh
+  - [x] Login UI: modal username/password → `/api/v1/auth/login` → token disimpan di localStorage; logout; otomatis muncul jika `auth_enabled` dan belum ada token; ganti `prompt()` pada 401
+  - [x] Loading/error state: spinner pada dashboard/KB, error + tombol "Coba lagi", toast error inbox
+  - [x] A11y: `role="dialog"`/`aria-modal`/aria-label pada modal & tombol icon, `aria-live` pada toast, focus otomatis saat modal buka, Escape menutup modal, `:focus-visible`
 
 ### Backend (FastAPI) — `/home/adminicc/workspace/sales-ai-backend/`
 - [x] `main.py` — 6 endpoint + WebSocket
