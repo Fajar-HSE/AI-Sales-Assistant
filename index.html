@@ -1190,13 +1190,16 @@ document.getElementById('scrim').addEventListener('click', ()=>{ document.getEle
 let ws = null, wsConnected = false;
 function apiBase(){
   if(location.protocol === 'https:' || location.protocol === 'http:'){
-    return location.origin + '/salesai/';
+    if(location.pathname.startsWith('/salesai/')){
+      return location.origin + '/salesai/';
+    }
+    return location.origin + '/';
   }
   return 'http://localhost:8000/';
 }
 function wsUrl(){
-  if(location.protocol === 'https:') return 'wss://' + location.host + '/salesai/ws';
-  if(location.protocol === 'http:') return 'ws://' + location.host + '/salesai/ws';
+  if(location.protocol === 'https:') return 'wss://' + location.host + (location.pathname.startsWith('/salesai/') ? '/salesai/ws' : '/ws');
+  if(location.protocol === 'http:') return 'ws://' + location.host + (location.pathname.startsWith('/salesai/') ? '/salesai/ws' : '/ws');
   return 'ws://localhost:8000/ws';
 }
 function setWsPill(ok){
