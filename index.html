@@ -348,8 +348,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
       <h1 id="pageTitle">Dashboard</h1>
-      <span class="pill"><span class="dot"></span> Groq AI connected</span>
-      <span class="pill"><span class="dot"></span> Fonte gateway</span>
+      <span class="pill" id="pillWS" title="Koneksi real-time"><span class="dot" id="dotWS"></span> <span id="lblWS">WebSocket</span></span>
+      <span class="pill" id="pillGroq" title="Status LLM"><span class="dot" id="dotGroq"></span> <span id="lblGroq">Groq AI</span></span>
+      <span class="pill" id="pillFonte" title="Status gateway WA"><span class="dot" id="dotFonte"></span> <span id="lblFonte">Fonte gateway</span></span>
       <span class="top-date num" id="topDate"></span>
     </div>
 
@@ -359,48 +360,48 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
         <div class="stats">
           <div class="stat">
             <div class="label">Chat Masuk</div>
-            <div class="value">24</div>
-            <div class="delta up">▲ 12% vs kemarin</div>
+            <div class="value" id="statChat">—</div>
+            <div class="delta">7 hari terakhir</div>
           </div>
           <div class="stat">
             <div class="label"><span class="stat-dot dot-hot"></span> Hot Lead</div>
-            <div class="value">8</div>
-            <div class="delta up">▲ +3 hari ini</div>
+            <div class="value" id="statHot">—</div>
+            <div class="delta" id="deltaHot"></div>
           </div>
           <div class="stat">
             <div class="label"><span class="stat-dot dot-warm"></span> Warm Lead</div>
-            <div class="value">10</div>
-            <div class="delta">stabil</div>
+            <div class="value" id="statWarm">—</div>
+            <div class="delta" id="deltaWarm"></div>
           </div>
           <div class="stat">
             <div class="label"><span class="stat-dot dot-cold"></span> Cold Lead</div>
-            <div class="value">6</div>
-            <div class="delta down">▼ -2 hari ini</div>
+            <div class="value" id="statCold">—</div>
+            <div class="delta" id="deltaCold"></div>
           </div>
           <div class="stat">
             <div class="label">Avg Response</div>
-            <div class="value">3.2<span style="font-size:13px;font-weight:600;color:var(--muted)"> mnt</span></div>
-            <div class="delta up">▼ lebih cepat 0.9 mnt</div>
+            <div class="value" id="statResp">—</div>
+            <div class="delta">perlu tracking waktu respons</div>
           </div>
         </div>
         <div class="grid2">
           <div class="card">
             <div class="card-head">
               <h3>Lead Distribution</h3>
-              <span class="sub">Hari ini · real-time</span>
+              <span class="sub">real-time</span>
             </div>
             <div class="card-body">
               <div class="hbar">
-                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-hot"></span>Hot</span><div class="hbar-track"><div class="hbar-fill hot" style="width:33%">33%</div></div><span class="hbar-pct">33%</span></div>
-                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-warm"></span>Warm</span><div class="hbar-track"><div class="hbar-fill warm" style="width:42%">42%</div></div><span class="hbar-pct">42%</span></div>
-                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-cold"></span>Cold</span><div class="hbar-track"><div class="hbar-fill cold" style="width:25%">25%</div></div><span class="hbar-pct">25%</span></div>
+                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-hot"></span>Hot</span><div class="hbar-track"><div class="hbar-fill hot" id="distHot" style="width:0%"></div></div><span class="hbar-pct" id="distHotPct">0%</span></div>
+                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-warm"></span>Warm</span><div class="hbar-track"><div class="hbar-fill warm" id="distWarm" style="width:0%"></div></div><span class="hbar-pct" id="distWarmPct">0%</span></div>
+                <div class="hbar-row"><span class="hbar-label"><span class="stat-dot dot-cold"></span>Cold</span><div class="hbar-track"><div class="hbar-fill cold" id="distCold" style="width:0%"></div></div><span class="hbar-pct" id="distColdPct">0%</span></div>
               </div>
             </div>
           </div>
           <div class="card">
             <div class="card-head">
               <h3>Chat Activity</h3>
-              <span class="sub">7 hari terakhir · update per jam</span>
+              <span class="sub">7 hari terakhir</span>
             </div>
             <div class="card-body">
               <div class="chart-row" id="chatActivity"></div>
@@ -411,15 +412,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
           <div class="card">
             <div class="card-head">
               <h3>Top Products by Interest</h3>
-              <span class="sub">Minggu ini</span>
+              <span class="sub">dari data customer</span>
             </div>
             <div class="card-body">
-              <div class="rank-list">
-                <div class="rank"><span class="rank-n">1</span><div class="rank-info"><div class="rank-name">POPAL</div><div class="rank-sub">Pelatihan & sertifikasi POPAL</div></div><span class="rank-val">12</span></div>
-                <div class="rank"><span class="rank-n">2</span><div class="rank-info"><div class="rank-name">GIS</div><div class="rank-sub">Sertifikasi GIS</div></div><span class="rank-val">8</span></div>
-                <div class="rank"><span class="rank-n">3</span><div class="rank-info"><div class="rank-name">Sertifikasi BNSP</div><div class="rank-sub">Skema BNSP umum</div></div><span class="rank-val">5</span></div>
-                <div class="rank"><span class="rank-n">4</span><div class="rank-info"><div class="rank-name">Pelatihan K3</div><div class="rank-sub">Keselamatan & kesehatan kerja</div></div><span class="rank-val">3</span></div>
-              </div>
+              <div class="rank-list" id="rankList"></div>
             </div>
           </div>
           <div class="card">
@@ -428,11 +424,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
               <span class="sub">3 hari terakhir · rata-rata</span>
             </div>
             <div class="card-body">
-              <div class="resp-bars">
-                <div class="resp-row"><span class="resp-label">Hari ini</span><div class="resp-track"><div class="resp-fill" style="width:64%"></div></div><span class="resp-val">3.2 mnt</span></div>
-                <div class="resp-row"><span class="resp-label">Kemarin</span><div class="resp-track"><div class="resp-fill" style="width:82%"></div></div><span class="resp-val">4.1 mnt</span></div>
-                <div class="resp-row"><span class="resp-label">2 hari lalu</span><div class="resp-track"><div class="resp-fill" style="width:100%"></div></div><span class="resp-val">5.0 mnt</span></div>
-              </div>
+              <div class="resp-bars" id="respTrend"></div>
             </div>
           </div>
         </div>
@@ -488,20 +480,20 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
           </button>
         </div>
         <div class="cat-grid" id="catGrid"></div>
-        <div class="card">
-          <div class="card-head"><h3>Recent Documents</h3><span class="sub" id="docCount"></span></div>
-          <table class="doc-table">
-            <thead><tr><th>Dokumen</th><th>Kategori</th><th>Produk</th><th>Updated</th><th style="width:84px">Aksi</th></tr></thead>
-            <tbody id="docBody"></tbody>
-          </table>
-        </div>
-        <div class="kb-stats">
-          <div class="kb-stat"><div class="v">65</div><div class="l">Total Documents</div></div>
-          <div class="kb-stat"><div class="v num">2,340</div><div class="l">Total Chunks (ter-index)</div></div>
-          <div class="kb-stat"><div class="v">6</div><div class="l">Kategori</div></div>
-          <div class="kb-stat"><div class="v">Hari ini</div><div class="l">Last Updated</div></div>
-        </div>
-      </section>
+          <div class="card">
+            <div class="card-head"><h3>Recent Documents</h3><span class="sub" id="docCount"></span></div>
+            <table class="doc-table">
+              <thead><tr><th>Dokumen</th><th>Kategori</th><th>Chunks</th><th>Updated</th><th style="width:84px">Aksi</th></tr></thead>
+              <tbody id="docBody"></tbody>
+            </table>
+          </div>
+          <div class="kb-stats">
+            <div class="kb-stat"><div class="v" id="kbStatDocs">0</div><div class="l">Total Documents</div></div>
+            <div class="kb-stat"><div class="v num" id="kbStatChunks">0</div><div class="l">Total Chunks (ter-index)</div></div>
+            <div class="kb-stat"><div class="v" id="kbStatCats">0</div><div class="l">Kategori</div></div>
+            <div class="kb-stat"><div class="v" id="kbStatUpdated">—</div><div class="l">Last Updated</div></div>
+          </div>
+        </section>
     </div>
   </div>
 </div>
@@ -521,19 +513,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
       </div>
       <div class="upload-info" id="uploadInfo" style="display:none"></div>
       <div class="field"><label>Title</label><input id="docTitle" type="text" placeholder="Contoh: POPAL - Deskripsi Produk"></div>
-      <div class="field-row">
-        <div class="field"><label>Category</label><select id="docCategory"></select></div>
-        <div class="field"><label>Product</label><select id="docProduct"></select></div>
-      </div>
-      <div class="field">
-        <label>Tags</label>
-        <div class="tags-row" id="tagsRow"></div>
-      </div>
+      <div class="field"><label>Category</label><select id="docCategory"></select></div>
       <div class="field"><label>Content</label><textarea id="docContent" rows="7" placeholder="Isi konten knowledge..."></textarea></div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeDocModal()">Cancel</button>
-      <button class="btn btn-ghost" onclick="saveDoc('reindex')">Save &amp; Re-index</button>
       <button class="btn btn-primary" onclick="saveDoc('save')">Save</button>
     </div>
   </div>
@@ -542,18 +526,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
 <div id="toast"></div>
 
 <script>
-/* ================================================================
-   DATA SIMULASI — struktur mengikuti format API PRD v1.0
-   Semua angka fiktif. Backend: FastAPI + Groq + PgVector (rencana).
-================================================================ */
-const CATS = [
-  {id:'produk', name:'Produk', icon:'box', count:12},
-  {id:'pelatihan', name:'Pelatihan', icon:'grad', count:8},
-  {id:'sertifikasi', name:'Sertifikasi', icon:'award', count:6},
-  {id:'faq', name:'FAQ', icon:'help', count:24},
-  {id:'template', name:'Template Chat', icon:'msg', count:10},
-  {id:'sop', name:'SOP Sales', icon:'doc', count:5},
-];
+/* ============ STATE ============ */
+const KB_CATS = ['BNSP', 'Kemnaker RI', 'Reguler', 'Umum'];
 const ICONS = {
   box:'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
   grad:'<path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/>',
@@ -562,27 +536,20 @@ const ICONS = {
   msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>',
   doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
 };
-const CAT_ICONS = {produk:'box', pelatihan:'grad', sertifikasi:'award', faq:'help', template:'msg', sop:'doc'};
-const DOC_FILES = {pdf:'PDF', docx:'DOC', txt:'TXT', md:'MD'};
 
 const CUSTOMERS = [];
 
-const DOCS = [
-  {id:'d1', title:'POPAL - Deskripsi Produk', cat:'produk', product:'POPAL', tags:['POPAL','sertifikasi','pelatihan'], upd:'2 jam lalu', ver:3},
-  {id:'d2', title:'POPAL - Harga & Paket', cat:'produk', product:'POPAL', tags:['POPAL','harga','paket'], upd:'2 jam lalu', ver:2},
-  {id:'d3', title:'GIS - Unit Kompetensi', cat:'pelatihan', product:'GIS', tags:['GIS','unit kompetensi'], upd:'1 hari lalu', ver:5},
-  {id:'d4', title:'Sertifikasi BNSP - Persyaratan', cat:'sertifikasi', product:'Sertifikasi BNSP', tags:['BNSP','persyaratan'], upd:'3 hari lalu', ver:1},
-  {id:'d5', title:'FAQ - Biaya Pelatihan', cat:'faq', product:'Umum', tags:['biaya','faq'], upd:'5 hari lalu', ver:8},
-  {id:'d6', title:'Template Opening - WhatsApp', cat:'template', product:'Umum', tags:['opening','template'], upd:'1 minggu lalu', ver:4},
-  {id:'d7', title:'SOP Respon Customer Inquiry', cat:'sop', product:'Umum', tags:['SOP','inquiry'], upd:'1 minggu lalu', ver:6},
-];
-let docs = [...DOCS];
+let kbDocs = [];
+let kbCats = {};
+let kbTotalChunks = 0;
+let kbFilter = '';
+let kbUpdated = '';
 
 /* ============ STATE ============ */
 let filter = 'all';
 let activeId = 'c1';
 let editingDoc = null;
-const TAGS_SAMPLE = ['pelatihan','POPAL','sertifikasi'];
+let selectedFile = null;
 
 /* ============ NAVIGASI ============ */
 const TITLES = {dashboard:'Dashboard', inbox:'Inbox', kb:'Knowledge Base'};
@@ -595,7 +562,7 @@ function go(page){
   document.getElementById('scrim').classList.remove('show');
   if(page==='dashboard') renderActivity();
   if(page==='inbox'){ renderChatList(); renderActiveChat(); }
-  if(page==='kb') renderDocs();
+  if(page==='kb') loadKb();
 }
 function toggleTheme(){
   const el = document.documentElement;
@@ -604,13 +571,85 @@ function toggleTheme(){
 }
 (function initTheme(){ const t = localStorage.getItem('theme'); if(t) document.documentElement.dataset.theme = t; })();
 
-/* ============ DASHBOARD ============ */
-const ACTIVITY = [{d:'Sen',v:12},{d:'Sel',v:18},{d:'Rab',v:24},{d:'Kam',v:20},{d:'Jum',v:15},{d:'Sab',v:22},{d:'Min',v:9}];
-function renderActivity(){
-  const max = Math.max(...ACTIVITY.map(a=>a.v));
-  document.getElementById('chatActivity').innerHTML = ACTIVITY.map(a=>
-    `<div class="bar-col"><div class="bar-wrap"><div class="bar${a.d==='Rab'?' alt':''}" style="height:${Math.round(a.v/max*100)}%"></div></div><span class="bar-val">${a.v}</span><span class="bar-label">${a.d}</span></div>`
+/* ============ DASHBOARD (real data dari /api/v1/stats) ============ */
+function fmtDur(sec){
+  if(sec==null || isNaN(sec)) return '—';
+  if(sec < 60) return Math.round(sec)+' dtk';
+  return (sec/60).toFixed(1)+' mnt';
+}
+function renderActivity(){ loadStats(); }
+function loadStats(){
+  apiFetch(apiBase()+'api/v1/stats')
+    .then(r=>r.json())
+    .then(resp=>{
+      if(!resp || resp.status!=='success' || !resp.data) return;
+      const s = resp.data, total = s.total||0;
+      document.getElementById('statChat').textContent = s.chat_count||0;
+      document.getElementById('statHot').textContent = s.hot||0;
+      document.getElementById('statWarm').textContent = s.warm||0;
+      document.getElementById('statCold').textContent = s.cold||0;
+      document.getElementById('statResp').textContent = fmtDur(s.avg_response_sec);
+      document.getElementById('deltaHot').textContent = total ? Math.round((s.hot||0)/total*100)+'% dari total lead' : '';
+      document.getElementById('deltaWarm').textContent = total ? Math.round((s.warm||0)/total*100)+'% dari total lead' : '';
+      document.getElementById('deltaCold').textContent = total ? Math.round((s.cold||0)/total*100)+'% dari total lead' : '';
+      const d = s.distribution||{};
+      document.getElementById('distHot').style.width = (d.hot||0)+'%';
+      document.getElementById('distWarm').style.width = (d.warm||0)+'%';
+      document.getElementById('distCold').style.width = (d.cold||0)+'%';
+      document.getElementById('distHotPct').textContent = (d.hot||0)+'%';
+      document.getElementById('distWarmPct').textContent = (d.warm||0)+'%';
+      document.getElementById('distColdPct').textContent = (d.cold||0)+'%';
+      renderStatsActivity(s.activity||[]);
+      renderTopProducts(s.top_products||[]);
+      renderRespTrend(s.response_trend||[]);
+    }).catch(e=>console.warn('[Stats] error:', e));
+}
+function renderStatsActivity(activity){
+  const el = document.getElementById('chatActivity');
+  if(!activity || !activity.length){
+    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1;width:100%">Belum ada data chat</div>';
+    return;
+  }
+  const max = Math.max(...activity.map(a=>a.value||0), 1);
+  el.innerHTML = activity.map(a=>
+    `<div class="bar-col"><div class="bar-wrap"><div class="bar" style="height:${Math.round((a.value||0)/max*100)}%"></div></div><span class="bar-val">${a.value||0}</span><span class="bar-label">${esc(a.label)}</span></div>`
   ).join('');
+}
+function renderTopProducts(products){
+  const el = document.getElementById('rankList');
+  if(!products || !products.length){
+    el.innerHTML = '<div class="empty-state">Belum ada data produk</div>';
+    return;
+  }
+  el.innerHTML = products.map((p,i)=>
+    `<div class="rank"><span class="rank-n">${i+1}</span><div class="rank-info"><div class="rank-name">${esc(p.name)}</div><div class="rank-sub">${esc(p.sub||'')}</div></div><span class="rank-val">${p.count||0}</span></div>`
+  ).join('');
+}
+function renderRespTrend(trend){
+  const el = document.getElementById('respTrend');
+  if(!trend || !trend.length){
+    el.innerHTML = '<div class="empty-state">Data belum tersedia<br><span style="font-size:11px">perlu tracking waktu respons</span></div>';
+    return;
+  }
+  const max = Math.max(...trend.map(t=>t.minutes||0), 1);
+  el.innerHTML = trend.map(t=>
+    `<div class="resp-row"><span class="resp-label">${esc(t.label)}</span><div class="resp-track"><div class="resp-fill" style="width:${Math.round((t.minutes||0)/max*100)}%"></div></div><span class="resp-val">${t.minutes} mnt</span></div>`
+  ).join('');
+}
+function loadHealth(){
+  apiFetch(apiBase()+'health')
+    .then(r=>r.json())
+    .then(h=>{
+      setPill('Groq', !!(h && h.groq_ready));
+      setPill('Fonte', !!(h && h.fonnte_ready));
+    }).catch(()=>{ setPill('Groq', false); setPill('Fonte', false); });
+}
+function setPill(kind, ok){
+  const dot = document.getElementById('dot'+kind), lbl = document.getElementById('lbl'+kind);
+  if(!dot || !lbl) return;
+  dot.classList.toggle('orange', !ok);
+  dot.classList.toggle('pulse', !ok);
+  lbl.textContent = ok ? (kind==='Groq' ? 'Groq AI connected' : 'Fonte gateway') : (kind==='Groq' ? 'Groq AI offline' : 'Fonte offline');
 }
 
 /* ============ INBOX ============ */
@@ -629,15 +668,18 @@ function renderChatList(){
   document.getElementById('chatCount').textContent = list.length + ' chat';
   const el = document.getElementById('chatList');
   if(!list.length){ el.innerHTML = '<div class="empty-state"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><div>Tidak ada chat ditemukan</div></div>'; return; }
-  el.innerHTML = list.map(c=>`
-    <div class="chat-item ${c.id===activeId?'active':''}" onclick="openChat('${c.id}')">
+  el.innerHTML = list.map(c=>{
+    const lastMsg = (c.msgs && c.msgs.length) ? c.msgs[c.msgs.length-1].d : (c.last||'');
+    return `
+    <div class="chat-item ${c.id===activeId?'active':''}" onclick="openChat('${esc(c.id)}')">
       <div class="c-avatar">${initials(c.name)}<span class="dot ${c.category==='hot'?'dot-hot':c.category==='warm'?'dot-warm':'dot-cold'}"></span></div>
       <div class="c-main">
-        <div class="c-top"><span class="c-name">${c.name}</span><span class="c-time">${c.last}</span></div>
-        <div class="c-msg">${c.msgs[c.msgs.length-1].d}</div>
-        <div class="c-sub">${catBadge(c)}${c.unread?`<span class="unread-n">${c.unread}</span>`:''}</div>
+        <div class="c-top"><span class="c-name">${esc(c.name)}</span><span class="c-time">${esc(c.last)}</span></div>
+        <div class="c-msg">${esc(lastMsg)}</div>
+        <div class="c-sub">${catBadge(c)}${c.unread?`<span class="unread-n">${esc(c.unread)}</span>`:''}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function setFilter(f, btn){
   filter = f;
@@ -658,13 +700,13 @@ function renderActiveChat(){
   document.getElementById('custHead').innerHTML = `
     <div class="avatar" style="width:40px;height:40px;font-size:14px">${initials(c.name)}</div>
     <div class="info">
-      <div class="nm">${c.name} ${catBadge(c)}</div>
-      <div class="meta num">${fmtPhone(c.phone)} · ${c.company} · ${c.product}</div>
+      <div class="nm">${esc(c.name)} ${catBadge(c)}</div>
+      <div class="meta num">${fmtPhone(c.phone)} · ${esc(c.company)} · ${esc(c.product)}</div>
     </div>
-    <span class="pill"><span class="dot"></span>${c.stage}</span>`;
-  document.getElementById('thread').innerHTML = c.msgs.map((m,i)=>{
+    <span class="pill"><span class="dot"></span>${esc(c.stage)}</span>`;
+  document.getElementById('thread').innerHTML = (c.msgs||[]).map((m,i)=>{
     const sep = i===0 ? '<div class="day-divider">Hari ini</div>' : '';
-    return sep + `<div class="msg ${m.dir}">${m.ai?`<span class="ai-tag"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>AI</span>`:''}${m.d}<span class="mt">${m.t}${m.dir==='out'?' <span class="ticks">✓✓</span>':''}</span></div>`;
+    return sep + `<div class="msg ${m.dir}">${m.ai?`<span class="ai-tag"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>AI</span>`:''}${esc(m.d)}<span class="mt">${esc(m.t)}${m.dir==='out'?' <span class="ticks">✓✓</span>':''}</span></div>`;
   }).join('');
   renderAnalysis(c);
 }
@@ -705,17 +747,17 @@ function renderAnalysis(c){
     <div>
       <div class="an-label">Analisis</div>
       <div class="kv-grid">
-        <div class="kv"><div class="k">Intent</div><div class="v">${c.labels.intent}</div></div>
-        <div class="kv"><div class="k">Produk</div><div class="v">${c.product}</div></div>
-        <div class="kv"><div class="k">Urgency</div><div class="v">${c.labels.urgency}</div></div>
-        <div class="kv"><div class="k">Sentiment</div><div class="v">${c.labels.sentiment}</div></div>
+        <div class="kv"><div class="k">Intent</div><div class="v">${esc(c.labels.intent)}</div></div>
+        <div class="kv"><div class="k">Produk</div><div class="v">${esc(c.product)}</div></div>
+        <div class="kv"><div class="k">Urgency</div><div class="v">${esc(c.labels.urgency)}</div></div>
+        <div class="kv"><div class="k">Sentiment</div><div class="v">${esc(c.labels.sentiment)}</div></div>
       </div>
     </div>
     <div>
       <div class="an-label">Suggested Reply</div>
       <div class="reply-box">
         <div class="reply-head"><b>Draft AI</b><span class="conf">confidence ${c.confidence}%</span></div>
-        <textarea id="replyDraft">${c.reply}</textarea>
+        <textarea id="replyDraft">${esc(c.reply)}</textarea>
         <div class="reply-actions">
           <button class="btn btn-ghost btn-sm" onclick="regenerate()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>Regenerate</button>
           <button class="btn btn-ghost btn-sm" onclick="copyReply()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
@@ -726,7 +768,7 @@ function renderAnalysis(c){
           </div>
         </div>
         <ul class="src-list">
-          ${c.sources.map(s=>`<li><span class="tag">${s.type}</span>${s.ref}</li>`).join('')}
+          ${(c.sources||[]).map(s=>`<li><span class="tag">${esc(s.type)}</span>${esc(s.ref)}</li>`).join('')}
         </ul>
       </div>
     </div>`;
@@ -740,7 +782,7 @@ function sendMsg(text, ai){
   const th = document.getElementById('thread');
   th.scrollTop = th.scrollHeight;
   // Kirim via backend API ke Fonnte
-  fetch(apiBase() + 'api/v1/messages/send', {
+  apiFetch(apiBase() + 'api/v1/messages/send', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({to:c.phone, text:text})
@@ -768,8 +810,35 @@ function copyReply(){
     .catch(()=>{ const ta = document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Draft disalin'); });
 }
 function regenerate(){
-  document.getElementById('replyDraft').value += '\n\n(Hasil regenerasi AI — simulasi)';
-  toast('Regenerasi balasan...');
+  const c = CUSTOMERS.find(x=>x.id===activeId);
+  if(!c) return toast('Pilih chat dulu');
+  toast('Menghasilkan balasan ulang...');
+  apiFetch(apiBase()+'api/v1/reply/generate', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      customer_id: c.id,
+      message: (c.msgs&&c.msgs.length)? c.msgs[c.msgs.length-1].d : '',
+      context: {
+        customer_name: c.name,
+        product: c.product,
+        customer_stage: c.stage,
+        lead_score: c.score,
+        chat_history: (c.msgs||[]).map(x=>x.d).join('\n')
+      },
+      knowledge_chunks: ''
+    })
+  }).then(r=>r.json()).then(resp=>{
+    if(resp.status==='success' && resp.data && resp.data.suggested_reply){
+      c.reply = resp.data.suggested_reply;
+      c.confidence = resp.data.confidence_score;
+      c.sources = (resp.data.sources||[]).map(s=>({type:s.type, ref:s.reference||s.ref}));
+      renderActiveChat();
+      toast('Balasan AI diperbarui');
+    } else {
+      toast('Regenerate gagal: '+(resp.error||'response kosong'));
+    }
+  }).catch(e=>toast('Error regenerate: '+e.message));
 }
 function feedback(up){
   document.getElementById('fbUp').classList.toggle('on', up===1);
@@ -778,48 +847,90 @@ function feedback(up){
 }
 
 /* ============ KB ============ */
+function loadKb(){
+  apiFetch(apiBase()+'api/v1/knowledge')
+    .then(r=>r.json())
+    .then(resp=>{
+      if(!resp || resp.status!=='success' || !resp.data) return;
+      kbDocs = resp.data.docs || [];
+      kbCats = resp.data.category_counts || {};
+      kbTotalChunks = resp.data.total_chunks || 0;
+      const dates = kbDocs.map(d=>new Date(d.uploaded_at||d.updated_at)).filter(d=>!isNaN(d)).sort((a,b)=>b-a);
+      kbUpdated = dates.length ? fmtDate(dates[0]) : '—';
+      renderDocs();
+    }).catch(e=>{ document.getElementById('docBody').innerHTML = '<tr><td colspan="5"><div class="empty-state">Gagal load KB: '+esc(e.message)+'</div></td></tr>'; });
+}
+function fmtDate(d){
+  const diff = Date.now() - d.getTime();
+  const min = Math.floor(diff/60000);
+  if(min < 1) return 'Baru saja';
+  if(min < 60) return min + ' mnt lalu';
+  const hrs = Math.floor(min/60);
+  if(hrs < 24) return hrs + ' jam lalu';
+  const days = Math.floor(hrs/24);
+  if(days < 7) return days + ' hari lalu';
+  return d.toLocaleDateString('id-ID', {day:'numeric', month:'short'});
+}
 function renderDocs(){
   const q = document.getElementById('kbSearch').value.trim().toLowerCase();
-  document.getElementById('catGrid').innerHTML = CATS.map(c=>`
-    <button class="cat-card" onclick="filterCat('${c.id}')">
-      <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[c.icon]}</svg></div>
-      <div class="nm">${c.name}</div>
-      <div class="cnt">${c.count} dokumen</div>
-    </button>`).join('');
-  const list = docs.filter(d => !q || d.title.toLowerCase().includes(q) || d.tags.some(t=>t.toLowerCase().includes(q)));
+  const cats = Object.keys(kbCats).length ? kbCats : {};
+  document.getElementById('catGrid').innerHTML = KB_CATS.map(c=>`
+    <button class="cat-card ${c===kbFilter?'active':''}" onclick="filterCat('${esc(c)}')">
+      <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></div>
+      <div class="nm">${c}</div>
+      <div class="cnt">${cats[c]||0} dokumen</div>
+    </button>`).join('') +
+    `<button class="cat-card ${kbFilter===''?'active':''}" onclick="filterCat('')">
+      <div class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></div>
+      <div class="nm">Semua</div>
+      <div class="cnt">${kbDocs.length} dokumen</div>
+    </button>`;
+  const list = kbDocs.filter(d =>
+    (!kbFilter || d.category===kbFilter) &&
+    (!q || (d.name||'').toLowerCase().includes(q))
+  );
   document.getElementById('docCount').textContent = list.length + ' dokumen';
+  document.getElementById('kbStatDocs').textContent = kbDocs.length;
+  document.getElementById('kbStatChunks').textContent = kbTotalChunks.toLocaleString('id-ID');
+  document.getElementById('kbStatCats').textContent = Object.keys(kbCats).length || KB_CATS.length;
+  document.getElementById('kbStatUpdated').textContent = kbUpdated;
   const body = document.getElementById('docBody');
   if(!list.length){ body.innerHTML = '<tr><td colspan="5"><div class="empty-state">Dokumen tidak ditemukan</div></td></tr>'; return; }
   body.innerHTML = list.map(d=>`
     <tr>
-      <td><div class="doc-title"><span class="f-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[CAT_ICONS[d.cat]]}</svg></span>${d.title}</div></td>
-      <td><span class="chip cat">${CATS.find(c=>c.id===d.cat).name}</span></td>
-      <td style="color:var(--muted)">${d.product}</td>
-      <td class="doc-upd">${d.upd}</td>
+      <td><div class="doc-title"><span class="f-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span>${esc(d.name||'')}</div></td>
+      <td><span class="chip cat">${esc(d.category||'')}</span></td>
+      <td style="color:var(--muted)">${d.chunk_count||0}</td>
+      <td class="doc-upd">${fmtDate(new Date(d.updated_at||d.uploaded_at))}</td>
       <td><div class="row-actions">
-        <button class="mini-btn" title="Edit" onclick="openDocModal('${d.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
-        <button class="mini-btn danger" title="Hapus" onclick="deleteDoc('${d.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        <button class="mini-btn" title="Edit" onclick="openDocModal('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
+        <button class="mini-btn danger" title="Hapus" onclick="deleteDoc('${esc(d.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       </div></td>
     </tr>`).join('');
 }
-function filterCat(id){
-  const el = document.getElementById('kbSearch');
-  el.value = el.value ? '' : '';
-  toast('Filter kategori: ' + CATS.find(c=>c.id===id).name + ' (prototype)');
+function filterCat(cat){
+  kbFilter = cat;
+  renderDocs();
 }
 /* modal */
-let selectedFile = null;
 function openDocModal(id){
   editingDoc = id || null;
   selectedFile = null;
   document.getElementById('docModalTitle').textContent = id ? 'Edit Document' : 'Add Document';
-  const d = id ? docs.find(x=>x.id===id) : {title:'', cat:'produk', product:'', tags:[], content:''};
-  document.getElementById('docTitle').value = d.title;
-  document.getElementById('docCategory').innerHTML = CATS.map(c=>`<option value="${c.id}" ${c.id===d.cat?'selected':''}>${c.name}</option>`).join('');
-  document.getElementById('docProduct').innerHTML = ['POPAL','GIS','Sertifikasi BNSP','Pelatihan K3','Umum'].map(p=>`<option ${p===d.product?'selected':''}>${p}</option>`).join('');
-  renderTags(d.tags.length? d.tags : [...TAGS_SAMPLE]);
-  document.getElementById('docContent').value = d.content || '';
-  // Reset upload area
+  document.getElementById('docCategory').innerHTML = KB_CATS.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  if(id){
+    apiFetch(apiBase()+'api/v1/knowledge/doc/'+encodeURIComponent(id))
+      .then(r=>r.json())
+      .then(resp=>{
+        const d = (resp && resp.data) || {};
+        document.getElementById('docTitle').value = d.name||'';
+        document.getElementById('docCategory').value = d.category||'';
+        document.getElementById('docContent').value = d.kb_text||'';
+      }).catch(e=>toast('Gagal load dokumen: '+e.message));
+  } else {
+    document.getElementById('docTitle').value = '';
+    document.getElementById('docContent').value = '';
+  }
   document.getElementById('uploadInfo').style.display = 'none';
   document.getElementById('uploadInfo').innerHTML = '';
   document.getElementById('docModal').classList.add('open');
@@ -830,70 +941,51 @@ function onFileSelect(){
   if(!f) return;
   selectedFile = f;
   const info = document.getElementById('uploadInfo');
-  info.innerHTML = `<div class="file-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="14" y2="13"/><line x1="10" y1="17" x2="14" y2="17"/></svg>${f.name} (${(f.size/1024).toFixed(1)} KB)</div>`;
+  info.innerHTML = `<div class="file-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="14" y2="13"/><line x1="10" y1="17" x2="14" y2="17"/></svg>${esc(f.name)} (${(f.size/1024).toFixed(1)} KB)</div>`;
   info.style.display = 'block';
   toast('File siap: ' + f.name);
 }
-function renderTags(tags){
-  document.getElementById('tagsRow').innerHTML =
-    tags.map(t=>`<span class="tag-chip">${t}<button onclick="removeTag(this)" title="Hapus">×</button></span>`).join('') +
-    `<input id="tagInput" placeholder="+ add" style="width:80px;padding:3px 8px;font-size:12px" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag()}">`;
-}
-function addTag(){
-  const inp = document.getElementById('tagInput');
-  const v = inp.value.trim();
-  if(!v) return;
-  const chips = [...document.querySelectorAll('#tagsRow .tag-chip')].map(c=>c.textContent.replace('×','').trim());
-  chips.push(v);
-  renderTags(chips);
-  inp.focus();
-}
-function removeTag(btn){ btn.parentElement.remove(); }
 function saveDoc(mode){
   const title = document.getElementById('docTitle').value.trim();
   const cat = document.getElementById('docCategory').value;
-  const product = document.getElementById('docProduct').value;
   if(!title){ toast('Judul wajib diisi'); return; }
-  const tags = [...document.querySelectorAll('#tagsRow .tag-chip')].map(c=>c.textContent.replace('×','').trim());
   const content = document.getElementById('docContent').value;
-
-  // Jika ada file — upload ke backend
-  if(selectedFile){
+  if(editingDoc){
+    apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(editingDoc), {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name:title, category:cat, kb_text:content})
+    }).then(r=>r.json()).then(resp=>{
+      if(resp && resp.status==='error'){ toast(resp.message||'Gagal update'); return; }
+      closeDocModal(); loadKb(); toast('Dokumen disimpan & di-re-chunk');
+    }).catch(e=>toast('Update gagal: '+e.message));
+  } else if(selectedFile){
     const form = new FormData();
     form.append('file', selectedFile);
     form.append('category', cat);
     form.append('name', title);
     toast('Sedang upload '+selectedFile.name.substring(0,20)+'...');
-    fetch(apiBase()+'api/v1/knowledge/upload', {
+    apiFetch(apiBase()+'api/v1/knowledge/upload', {
       method:'POST',
       body: form
-    }).then(r=>r.json()).then(()=>{
+    }).then(r=>r.json()).then(resp=>{
+      if(resp && resp.status==='error'){ toast(resp.message||'Upload gagal'); return; }
       toast('Dokumen "'+title+'" di-upload & ter-index (chunking)');
-      // Refresh KB list from backend
-      refreshKbDocs();
-      closeDocModal();
+      closeDocModal(); loadKb();
     }).catch(e=>{ toast('Upload gagal: '+e.message); });
-  } else if(editingDoc){
-    const d = docs.find(x=>x.id===editingDoc);
-    d.title = title; d.cat = cat; d.product = product; d.tags = tags; d.content = content;
-    d.upd = 'Baru saja'; d.ver++;
-    closeDocModal(); renderDocs(); toast('Dokumen disimpan');
   } else {
-    docs.unshift({id:'d'+Date.now(), title, cat, product, tags, content, upd:'Baru saja', ver:1});
-    closeDocModal(); renderDocs(); toast('Dokumen disimpan');
+    toast('Pilih file untuk dokumen baru, atau isi konten manual belum didukung di backend');
   }
 }
 function deleteDoc(id){
   if(!confirm('Hapus dokumen ini?')) return;
-  docs = docs.filter(d=>d.id!==id);
-  renderDocs();
-  toast('Dokumen dihapus');
-}
-function refreshKbDocs(){
-  fetch(apiBase()+'api/v1/knowledge/health')
-    .then(r=>r.json())
-    .then(h=>{ if(h.kb_docs_memory > 0) toast('KB refresh: '+h.kb_docs_memory+' dokumen aktif'); })
-    .catch(()=>{});
+  apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(id), {method:'DELETE'})
+    .then(r=>r.json()).then(resp=>{
+      if(resp && resp.status==='error'){ toast(resp.message||'Gagal hapus'); return; }
+      if(kbFilter) kbFilter = '';
+      loadKb();
+      toast('Dokumen dihapus');
+    }).catch(e=>toast('Hapus gagal: '+e.message));
 }
 
 /* ============ UTIL ============ */
@@ -905,13 +997,79 @@ function toast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>el.classList.remove('show'), 2600);
 }
+function esc(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function apiFetch(url, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {});
+  const t = localStorage.getItem('apiToken');
+  if(t) opts.headers['Authorization'] = 'Bearer ' + t;
+  return fetch(url, opts).then(res=>{
+    if(res.status === 401 && !opts._retried){
+      const tok = prompt('Session API tidak valid / kedaluwarsa. Masukkan token admin (atau API token):');
+      if(tok && tok.trim()){
+        localStorage.setItem('apiToken', tok.trim());
+        opts._retried = true;
+        opts.headers['Authorization'] = 'Bearer ' + tok.trim();
+        return fetch(url, opts);
+      }
+    }
+    return res;
+  });
+}
+function catKey(cat, score){
+  const m = {hot:'hot', warm:'warm', cold:'cold', 'Hot Lead':'hot', 'Warm Lead':'warm', 'Cold Lead':'cold'};
+  if(m[cat]) return m[cat];
+  return score>=70 ? 'hot' : (score>=40 ? 'warm' : 'cold');
+}
+function loadCustomers(){
+  apiFetch(apiBase()+'api/v1/customers')
+    .then(r=>r.json())
+    .then(list=>{
+      if(!Array.isArray(list) || !list.length) return;
+      const map = {};
+      list.forEach(c=>{
+        const cat = catKey(c.category, c.score);
+        map[c.phone] = {
+          id:'db'+c.phone,
+          name: c.name || c.phone,
+          phone: c.phone,
+          company: c.company || '—',
+          product: c.product || 'Umum',
+          stage: c.stage || 'Awareness',
+          score: c.score || 0,
+          category: cat,
+          last: c.last || '',
+          unread: c.unread || 0,
+          analysis: {intent:50,product_match:50,urgency:50,sentiment:50,chat_history:50,decision_maker:50},
+          labels: {intent:'', urgency:'', sentiment:''},
+          reply:'', confidence:0, sources:[],
+          msgs: (Array.isArray(c.msgs) && c.msgs.length) ? c.msgs : []
+        };
+      });
+      // Pertahankan customer WS aktif, tambahkan customer dari DB
+      const existing = CUSTOMERS.filter(c=>!map[c.phone]);
+      CUSTOMERS.length = 0;
+      CUSTOMERS.push(...existing, ...Object.values(map));
+      if(!CUSTOMERS.find(c=>c.id===activeId) && CUSTOMERS.length) activeId = CUSTOMERS[0].id;
+      renderChatList();
+      renderActiveChat();
+      document.getElementById('navUnread').textContent = CUSTOMERS.filter(x=>x.unread>0).length;
+    }).catch(()=>{});
+}
 function tickDate(){
   const d = new Date();
   document.getElementById('topDate').textContent =
     d.toLocaleDateString('id-ID',{weekday:'long', day:'numeric', month:'long'}) + ', ' + d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
 }
 tickDate(); setInterval(tickDate, 30000);
-setInterval(()=>{ if(document.getElementById('page-dashboard').classList.contains('active')) toast('Dashboard di-refresh (30 detik)'); }, 30000);
+setInterval(()=>{
+  if(document.getElementById('page-dashboard').classList.contains('active')) loadStats();
+  if(document.getElementById('page-kb').classList.contains('active')) loadKb();
+}, 30000);
 window.addEventListener('resize', ()=>{ document.getElementById('menuBtn').style.display = window.innerWidth<900?'inline-flex':'none'; });
 window.dispatchEvent(new Event('resize'));
 document.getElementById('scrim').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('scrim').classList.remove('show'); });
@@ -929,12 +1087,20 @@ function wsUrl(){
   if(location.protocol === 'http:') return 'ws://' + location.host + '/salesai/ws';
   return 'ws://localhost:8000/ws';
 }
+function setWsPill(ok){
+  const dot = document.getElementById('dotWS'), lbl = document.getElementById('lblWS');
+  if(!dot || !lbl) return;
+  dot.classList.toggle('orange', !ok);
+  dot.classList.toggle('pulse', !ok);
+  lbl.textContent = ok ? 'WebSocket terhubung' : 'WebSocket offline';
+}
 function connectWS(){
   try{
     ws = new WebSocket(wsUrl());
     ws.onopen = ()=>{
       wsConnected = true;
       console.log('[WS] connected ke backend: ' + wsUrl());
+      setWsPill(true);
       ws.pingInterval = setInterval(()=>{
         if(ws.readyState === WebSocket.OPEN){ ws.send(JSON.stringify({type:'ping'})); }
       }, 25000);
@@ -948,11 +1114,12 @@ function connectWS(){
     };
     ws.onclose = ()=>{
       wsConnected = false;
+      setWsPill(false);
       if(ws.pingInterval) clearInterval(ws.pingInterval);
       setTimeout(connectWS, 1500);
     };
     ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
-  }catch(e){ wsConnected = false; }
+  }catch(e){ wsConnected = false; setWsPill(false); }
 }
 function handleIncomingChat(data){
   if(!data || data.type !== 'chat_incoming') return;
@@ -981,7 +1148,7 @@ function handleIncomingChat(data){
     if(cust.name.startsWith('Customer +') && nm!==cust.name) cust.name = nm;
     console.log('[WS] update existing customer:', phone, 'unread:', cust.unread);
     // Always re-fetch suggested reply for updated customer (not just active)
-    fetch(apiBase()+'api/v1/reply/generate', {
+    apiFetch(apiBase()+'api/v1/reply/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1023,7 +1190,7 @@ function handleIncomingChat(data){
     CUSTOMERS.unshift(cust);
     console.log('[WS] new customer:', phone);
     // Fetch suggested reply from backend (Groq + knowledge + chat history)
-    fetch(apiBase()+'api/v1/reply/generate', {
+    apiFetch(apiBase()+'api/v1/reply/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1061,10 +1228,12 @@ function handleIncomingChat(data){
 
 /* ============ INIT ============ */
 connectWS();
+loadHealth();
 renderActivity();
 renderChatList();
 renderActiveChat();
-renderDocs();
+loadKb();
+loadCustomers();
 </script>
 </body>
 </html>

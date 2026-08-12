@@ -1,6 +1,6 @@
 # 📋 TODO — Sales AI Assistant (AI-Powered Sales Assistant for WhatsApp Business)
 
-**PRD:** v1.0 (2026-08-05) · **Status:** Iterasi v3 · **Update:** 2026-08-06
+**PRD:** v1.0 (2026-08-05) · **Status:** Iterasi v3 · **Update:** 2026-08-12
 
 ## ✅ SUDAH DILAKUKAN
 
@@ -20,11 +20,19 @@
 - [x] **WebSocket real-time** ke backend (chat masuk langsung muncul, fallback ke simulasi jika backend mati, auto-reconnect 5 dtk)
 - [x] Responsive (drawer sidebar < 900px), theme toggle persist localStorage
 - [x] Verifikasi: 0 JS error, QA visual Playwright bersih, E2E PASS
+- [x] **Integrasi real (v0.4.1)**: Dashboard & KB tidak lagi simulasi
+  - [x] `GET /api/v1/stats` (chat_count, hot/warm/cold + %, distribution, activity 7 hari, top_products) — dibaca dashboard
+  - [x] Dashboard: stat cards, Lead Distribution bar, Chat Activity, Top Products, Response Trend di-render dari API (auto-refresh 30 dtk)
+  - [x] Status pills topbar diisi dari `/health` (Groq/Fonnte/WebSocket)
+  - [x] KB list/filter kategori/statistik dari `GET /api/v1/knowledge` (kategori disatukan: BNSP/Kemnaker RI/Reguler/Umum)
+  - [x] Edit dokumen via `PUT /api/v1/knowledge/{id}` (re-chunk otomatis), hapus via `DELETE`, detail via `GET .../doc/{id}`
+  - [x] Fix: `upload_knowledge` pakai `Form(...)` agar category/name terbaca (sebelumnya selalu default Umum)
+  - [x] Fix: `process_incoming` simpan category/score/badge ke store in-memory (sebelumnya mutasi dict salinan)
 
 ### Backend (FastAPI) — `/home/adminicc/workspace/sales-ai-backend/`
 - [x] `main.py` — 6 endpoint + WebSocket
   - [x] `GET /health` — status + groq_ready
-  - [x] `POST /webhook/fonte` — terima chat masuk + verifikasi signature + scoring otomatis
+  - [x] `POST /webhook/fonte` — terima chat masuk + verifikasi token webhook + scoring otomatis
   - [x] `POST /api/v1/assessment/analyze` — lead scoring 6 komponen (format PRD 5.1.4)
   - [x] `POST /api/v1/reply/generate` — suggested reply + confidence + sources (format PRD 5.2.4)
   - [x] `POST /api/v1/messages/send` — kirim balasan via Fonte API
@@ -32,6 +40,7 @@
   - [x] `WS /ws` — broadcast chat_incoming ke frontend (ConnectionManager)
 - [x] `profile_name` support (nama WA asli tampil di inbox)
 - [x] CORS enabled (dev), .env.example + requirements.txt
+- [x] **Keamanan v0.4**: webhook token (`WEBHOOK_SECRET`, header `x-webhook-token` / query `?token=`), auth JWT + API token di semua `/api/v1/*`, CORS restricted (`CORS_ORIGINS`), rate limiting in-memory, parse payload aman, XSS escaping di frontend, `AI_LOGS` di-cap
 - [x] Terverifikasi live: semua endpoint 200, WebSocket E2E PASS (webhook → scoring → broadcast → muncul di Inbox <1 dtk)
 
 ### Proses
@@ -58,19 +67,23 @@
 - [ ] RAG penuh: query knowledge base (chunks) sebagai konteks reply (saat ini context manual/kosong)
 
 ### Database & Persistensi
+- [x] `/api/v1/customers` kini baca gabungan in-memory + Supabase (customer lama muncul lagi setelah restart) — v0.4
+- [x] Auth JWT + API token di semua `/api/v1/*` (login `/api/v1/auth/login`, `ADMIN_USER`/`ADMIN_PASSWORD`/`API_TOKEN`) — PRD 9.2 (sebagian; RBAC per-role belum)
 - [ ] PostgreSQL + PgVector (ganti mock `CUSTOMERS`/`LEAD_SCORES`/`AI_LOGS`)
 - [ ] Simpan messages, lead_scores, ai_reply_logs (schema PRD 6.2)
-- [ ] Auth JWT + RBAC (Admin/Sales Manager/Sales) — PRD 9.2
+- [ ] RBAC penuh (Admin/Sales Manager/Sales) — PRD 9.2
 
 ### Deployment
 - [ ] Deploy backend ke VPS 31.97.109.249 (systemd/Docker)
 - [ ] Ubah `ws://localhost:8000/ws` di frontend → `wss://<domain>/ws`
 - [ ] Serve frontend di domain publik (atau pindah ke Next.js sesuai PRD 8.2)
 - [ ] Domain + HTTPS (TLS 1.2+) + reverse proxy (nginx sudah ada di VPS)
+- [ ] Set `WEBHOOK_SECRET` & tambahkan `?token=...` pada URL webhook di dashboard Fonnte
+- [ ] Set `JWT_SECRET_KEY` + `ADMIN_PASSWORD` (atau `API_TOKEN`) sebelum go-live
 
 ### QA & Penutup
 - [ ] UAT lengkap dengan sales/manager (persona PRD 4)
-- [ ] Rate limiting Fonte + retry/backoff Groq (PRD 6.5)
+- [ ] Retry/backoff Groq (PRD 6.5) — rate limiting in-memory sudah ada
 - [ ] Notifikasi chat baru (Web Push / Telegram) saat sales offline
 
 ## 🔜 FUTURE (Out of Scope MVP — PRD 3.2)

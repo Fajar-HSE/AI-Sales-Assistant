@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """
-Sales AI Assistant — FastAPI Backend v0.3
+Sales AI Assistant — FastAPI Backend v0.4
 Gateway WA : Fonnte (api.fonnte.com)
 LLM       : Groq (llama-3.3-70b-versatile, JSON mode) + fallback rule-based
 DB        : Supabase Postgres (customers, chats, products, leads, upload)
 Storage   : Supabase Storage (product uploads)
 Endpoints : /health, /ws, /webhook/fonnte (+ /webhook/fonte alias),
-            /api/v1/messages/send, /api/v1/assessment/analyze,
+            /api/v1/auth/login, /api/v1/messages/send, /api/v1/assessment/analyze,
             /api/v1/reply/generate, /api/v1/customers,
-            /api/v1/products/*, /api/v1/upload
+            /api/v1/products/*, /api/v1/upload, /api/v1/knowledge/*
+Security  : webhook token, JWT/API-token auth, CORS restricted, rate limit
 """
-import os, json, hmac, hashlib, uuid, datetime, logging, io
+import os, json, hmac, hashlib, uuid, datetime, logging, io, time
 import httpx
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+
+try:
+    import jwt as pyjwt
+except Exception:
+    pyjwt = None
 
 load_dotenv()  # baca .env
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("sai")
-
-app = FastAPI(title="Sales AI Assistant API", version="0.3.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ---------- CONFIG ----------
 FONNTE_TOKEN      = os.getenv("FONNTE_TOKEN", "")
@@ -31,8 +34,34 @@ FONNTE_FROM       = os.getenv("FONNTE_FROM_NUMBER", "6289876543210")
 GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-# Frontend (index.html) dilayani di "/" — diakses via https://amcicccrm.my.id/salesai/
-FRONTEND_FILE = os.getenv("FRONTEND_FILE", "/home/adminicc/workspace/sales-ai-assistant/index.html")
+# Webhook — jika diisi, /webhook/* hanya menerima token yang cocok
+# (header "x-webhook-token" ATAU query "?token=" pada URL webhook Fonnte)
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
+# Auth — JWT (login) dan/atau static API token. Jika keduanya kosong => dev mode terbuka.
+JWT_SECRET_KEY  = os.getenv("JWT_SECRET_KEY", "")
+JWT_EXPIRATION  = int(os.getenv("JWT_EXPIRATION", "86400") or "86400")
+API_TOKEN       = os.getenv("API_TOKEN", "")
+ADMIN_USER      = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD", "")
+AUTH_ENABLED    = bool(JWT_SECRET_KEY or API_TOKEN)
+
+# Rate limit (in-memory, per IP/key)
+RATE_WINDOW = int(os.getenv("RATE_WINDOW", "60"))
+RATE_MAX    = int(os.getenv("RATE_MAX", "60"))
+
+# Frontend (index.html) dilayani di "/" — default relatif ke file backend ini
+FRONTEND_FILE = os.getenv("FRONTEND_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"))
+
+# CORS — frontend dilayani same-origin via /salesai/, sehingga origin ketat aman.
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()] or \
+               ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+app = FastAPI(title="Sales AI Assistant API", version="0.4.0")
+app.add_middleware(CORSMiddleware,
+                   allow_origins=cors_origins,
+                   allow_methods=["*"],
+                   allow_headers=["*"])
 
 # Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -53,6 +82,75 @@ except Exception as e:
 CUSTOMERS = {}
 LEAD_SCORES = {}
 AI_LOGS = []
+
+# ---------- HELPERS ----------
+def _to_int(v, default=50):
+    """Coerce ke int dengan aman (Groq kadang mengembalikan string)."""
+    try:
+        return int(float(v))
+    except Exception:
+        return default
+
+def _append_log(entry: dict, cap: int = 500) -> None:
+    """Tambah log AI dengan cap agar tidak bocor memori."""
+    AI_LOGS.append(entry)
+    if len(AI_LOGS) > cap:
+        del AI_LOGS[:len(AI_LOGS) - cap]
+
+async def _read_json(req: Request) -> dict:
+    """Baca body JSON dengan aman; body invalid => 400 (bukan 500)."""
+    try:
+        d = await req.json()
+        return d if isinstance(d, dict) else {}
+    except Exception as e:
+        raise HTTPException(400, f"Invalid JSON payload: {e}")
+
+# ---------- AUTH ----------
+def create_token(payload: dict) -> str:
+    payload = dict(payload)
+    payload["exp"] = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=JWT_EXPIRATION)
+    return pyjwt.encode(payload, JWT_SECRET_KEY, algorithm="HS256")
+
+def _verify_token(token: str) -> bool:
+    if not token:
+        return False
+    if API_TOKEN:
+        try:
+            if hmac.compare_digest(token, API_TOKEN):
+                return True
+        except Exception:
+            pass
+    if pyjwt and JWT_SECRET_KEY:
+        try:
+            pyjwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+            return True
+        except Exception:
+            return False
+    return False
+
+async def auth_required(request: Request, authorization: str = Header(default="")):
+    """Dependency auth untuk semua /api/v1/*. Dev mode (tanpa key) => terbuka."""
+    if not AUTH_ENABLED:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    token = token.strip() if scheme.lower() == "bearer" else authorization.strip()
+    if not _verify_token(token):
+        raise HTTPException(401, "Unauthorized")
+    return None
+
+# ---------- RATE LIMITING (in-memory) ----------
+_RATE_HITS = {}
+
+def _rate_limited(key: str, limit: int = RATE_MAX, window: int = RATE_WINDOW) -> bool:
+    """True jika masih dalam kuota; False jika melebihi."""
+    now = time.time()
+    hits = [t for t in _RATE_HITS.get(key, []) if now - t < window]
+    if len(hits) >= limit:
+        _RATE_HITS[key] = hits
+        return False
+    hits.append(now)
+    _RATE_HITS[key] = hits
+    return True
 
 # ---------- GROQ CLIENT ----------
 try:
@@ -166,7 +264,7 @@ class GroqClient:
             if "suggested_reply" not in out:
                 log.warning("[generate_reply] missing suggested_reply, full response: %s", str(out)[:500])
                 raise KeyError("suggested_reply missing from Groq response")
-            return {"suggested_reply":out["suggested_reply"],"confidence_score":min(99,int(out.get("confidence_score",70))),
+            return {"suggested_reply":out["suggested_reply"],"confidence_score":min(99,_to_int(out.get("confidence_score",70))),
                     "sources":out.get("sources",[]),"fallback":out.get("fallback","")}
         except Exception as e:
             log.warning("Groq reply error -> fallback: %s | type: %s", e, type(e).__name__)
@@ -178,7 +276,7 @@ class GroqClient:
                 reply += "  lokasi / preferensi wilayah?"
             else:
                 reply += "  produk apa yang Kakak butuhkan?"
-            return {"suggested_reply":reply,"confidence_score":min(99,it["intent"]+10),
+            return {"suggested_reply":reply,"confidence_score":min(99,_to_int(it["intent"],50)+10),
                     "sources":[{"type":"faq","reference":f"FAQ - {context.get('product','Umum')}"}],
                     "fallback":"Maaf kak, saya kurang yakin. Sales kami akan menghubungi segera."}
 
@@ -277,6 +375,7 @@ def save_customer_db(phone: str, name: str, analysis: dict) -> dict:
             "last_score": analysis.get("lead_score", 0),
             "category": analysis.get("category", "Cold Lead"),
             "badge": analysis.get("badge", "🔴"),
+            "product": analysis.get("product", "Umum"),
             "last_message": analysis.get("intent_label", ""),
             "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
@@ -343,6 +442,7 @@ def build_customer(phone: str, name: str = None, analysis: dict = None) -> dict:
             "score": analysis.get("lead_score", 0) if analysis else 0,
             "category": analysis.get("category", "Cold Lead") if analysis else "Cold Lead",
             "badge": analysis.get("badge", "🔴") if analysis else "🔴",
+            "product": analysis.get("product", "Umum") if analysis else "Umum",
             "created": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
     else:
@@ -352,6 +452,7 @@ def build_customer(phone: str, name: str = None, analysis: dict = None) -> dict:
             CUSTOMERS[phone]["score"] = analysis["lead_score"]
             CUSTOMERS[phone]["category"] = analysis["category"]
             CUSTOMERS[phone]["badge"] = analysis["badge"]
+            CUSTOMERS[phone]["product"] = analysis.get("product", CUSTOMERS[phone].get("product", "Umum"))
     # Also save to Supabase
     if analysis:
         save_customer_db(phone, CUSTOMERS[phone]["name"], analysis)
@@ -369,6 +470,8 @@ def process_incoming(payload: dict):
     cust  = build_customer(sender, name)
     analysis = groq.analyze(text)
     LEAD_SCORES[sender] = analysis
+    # Re-fetch customer AFTER analysis agar category/score/badge tersimpan di store
+    cust = build_customer(sender, name, analysis)
 
     # Save to in-memory
     cust["msgs"].append({"dir":"in","t":datetime.datetime.now().strftime("%H:%M"),"d":text})
@@ -507,7 +610,7 @@ def format_kb_context(chunks: list) -> str:
     return "\n\n".join(parts)
 
 @app.post("/api/v1/products")
-async def create_product(p: dict):
+async def create_product(p: dict, _: None = Depends(auth_required)):
     """Buat/update produk pelatihan. {name, category, description, price_range, duration, kb_text}"""
     if not HAS_SUPABASE:
         return {"status":"mock","product_id":str(uuid.uuid4())}
@@ -531,7 +634,7 @@ async def create_product(p: dict):
         return {"status":"error","error":str(e)}
 
 @app.get("/api/v1/products")
-async def list_products(category: str = None):
+async def list_products(category: str = None, _: None = Depends(auth_required)):
     """List semua produk, optional filter category (BNSP/Kemnaker/Umum/Reguler)."""
     if not HAS_SUPABASE:
         return []
@@ -546,7 +649,7 @@ async def list_products(category: str = None):
         return {"status":"error","error":str(e)}
 
 @app.get("/api/v1/products/{pid}")
-async def get_product(pid: str):
+async def get_product(pid: str, _: None = Depends(auth_required)):
     """Get detail produk by ID, termasuk KB text untuk Suggested Reply."""
     if not HAS_SUPABASE:
         return {"status":"mock","id":pid}
@@ -558,13 +661,14 @@ async def get_product(pid: str):
         return {"status":"error","error":str(e)}
 
 @app.post("/api/v1/upload")
-async def upload_product_file(file: UploadFile = File(...)):
+async def upload_product_file(file: UploadFile = File(...), _: None = Depends(auth_required)):
     """Upload file produk (PDF, gambar, dokumen K3/BNSP) ke Supabase Storage."""
     result = await upload_to_supabase(file)
     return result
 
 @app.post("/api/v1/knowledge/upload")
-async def upload_knowledge(file: UploadFile = File(...), category: str = "Umum", name: str = "", extract_text: bool = True):
+async def upload_knowledge(file: UploadFile = File(...), category: str = Form("Umum"), name: str = Form(""), extract_text: bool = Form(True),
+                           _: None = Depends(auth_required)):
     """Upload file KB (PDF/txt) -> extract text -> simpan ke tabel knowledge_base.
     category: BNSP | Kemnaker | Reguler | Umum
     """
@@ -661,7 +765,7 @@ async def upload_knowledge(file: UploadFile = File(...), category: str = "Umum",
         return {"status":"mock_saved","category":category,"name":name or file.filename,"kb_text_length":len(kb_text),"chunk_count":len(chunks),"chunks_preview":chunks[:3],"file":upload_result}
 
 @app.get("/api/v1/knowledge/search")
-async def knowledge_search(q: str = "", cat: str = None, limit: int = 5):
+async def knowledge_search(q: str = "", cat: str = None, limit: int = 5, _: None = Depends(auth_required)):
     """Keyword search over KB chunks (Option A: no vector)."""
     if not q.strip():
         return {"status":"error","error":"q wajib"}
@@ -669,10 +773,127 @@ async def knowledge_search(q: str = "", cat: str = None, limit: int = 5):
     if cat and cat.strip() and cat.strip() in PRODUCT_CATEGORIES:
         category = cat.strip()
     hits = search_kb_chunks(q, category=category, limit=max(1, min(limit, 20)))
-    return {"status":"success","query":q,"category":category,"count":len(hits),"hits":hits}
+    return {"status":"success","data":{"query":q,"category":category,"count":len(hits),"hits":hits}}
+
+def _kb_rows(category: str = None) -> list:
+    """Ambil baris KB dari Supabase (fallback in-memory), opsional filter kategori."""
+    rows = []
+    if HAS_SUPABASE and sb():
+        try:
+            q = sb().from_("knowledge_base").select("id,name,category,filename,file_url,uploaded_at,chunk_count,kb_text,chunks")
+            result = q.order("uploaded_at", desc=True).limit(500).execute()
+            rows = result.data or []
+        except Exception as e:
+            log.warning("[Knowledge] Error: %s", e)
+            rows = []
+    if not rows:
+        rows = list(KB_STORE)
+    if category:
+        rows = [r for r in rows if r.get("category") == category]
+    return rows
+
+def _kb_doc_dict(p: dict) -> dict:
+    ch = p.get("chunks") or []
+    if isinstance(ch, str):
+        try:
+            ch = json.loads(ch)
+        except Exception:
+            ch = []
+    return {
+        "id": p.get("id"),
+        "name": p.get("name"),
+        "category": p.get("category"),
+        "filename": p.get("filename", ""),
+        "url": p.get("file_url"),
+        "uploaded_at": p.get("uploaded_at"),
+        "chunk_count": p.get("chunk_count") or len(ch),
+        "preview": (p.get("kb_text") or "")[:400],
+        "kb_text": p.get("kb_text") or "",
+    }
+
+@app.get("/api/v1/knowledge")
+async def list_knowledge(category: str = None, _: None = Depends(auth_required)):
+    """List semua dokumen KB (opsional filter category) + hitungan per kategori."""
+    if category and category not in PRODUCT_CATEGORIES:
+        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
+    rows = _kb_rows(category)
+    docs = [_kb_doc_dict(r) for r in rows]
+    counts = {c: 0 for c in PRODUCT_CATEGORIES}
+    for d in docs:
+        counts[d.get("category")] = counts.get(d.get("category"), 0) + 1
+    total_chunks = sum(d.get("chunk_count") or 0 for d in docs)
+    return {"status":"success","data":{
+        "category": category,
+        "count": len(docs),
+        "docs": docs,
+        "category_counts": counts,
+        "total_chunks": total_chunks,
+    }}
+
+@app.get("/api/v1/knowledge/doc/{doc_id}")
+async def get_knowledge_doc(doc_id: str, _: None = Depends(auth_required)):
+    """Detail satu dokumen KB (termasuk kb_text penuh untuk edit)."""
+    for r in _kb_rows():
+        if r.get("id") == doc_id:
+            return {"status":"success","data":_kb_doc_dict(r)}
+    return {"status":"error","error":"doc not found"}
+
+@app.put("/api/v1/knowledge/{doc_id}")
+async def update_knowledge(doc_id: str, p: dict, _: None = Depends(auth_required)):
+    """Update name/category/kb_text dokumen KB (re-chunk)."""
+    name = str(p.get("name", "")).strip()
+    category = str(p.get("category", "")).strip()
+    kb_text = str(p.get("kb_text", "") or "").strip()
+    if category and category not in PRODUCT_CATEGORIES:
+        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
+    if not name and not kb_text:
+        return {"status":"error","error":"name atau kb_text wajib"}
+    chunks = chunk_text(kb_text) if kb_text else None
+    if HAS_SUPABASE and sb():
+        try:
+            data = {}
+            if name:
+                data["name"] = name
+            if category:
+                data["category"] = category
+            if kb_text:
+                data["kb_text"] = kb_text[:50000]
+                data["chunks"] = chunks
+                data["chunk_count"] = len(chunks)
+            result = sb().table("knowledge_base").update(data).eq("id", doc_id).execute()
+            return {"status":"saved","data":result.data}
+        except Exception as e:
+            log.warning("[Knowledge] Update error: %s", e)
+            return {"status":"error","error":str(e)}
+    for r in KB_STORE:
+        if r.get("id") == doc_id:
+            if name:
+                r["name"] = name
+            if category:
+                r["category"] = category
+            if kb_text:
+                r["kb_text"] = kb_text[:50000]
+                r["chunks"] = chunks
+                r["chunk_count"] = len(chunks)
+            return {"status":"saved","id":doc_id}
+    return {"status":"error","error":"doc not found"}
+
+@app.delete("/api/v1/knowledge/{doc_id}")
+async def delete_knowledge(doc_id: str, _: None = Depends(auth_required)):
+    """Hapus dokumen KB."""
+    if HAS_SUPABASE and sb():
+        try:
+            sb().table("knowledge_base").delete().eq("id", doc_id).execute()
+            return {"status":"deleted","id":doc_id}
+        except Exception as e:
+            log.warning("[Knowledge] Delete error: %s", e)
+            return {"status":"error","error":str(e)}
+    before = len(KB_STORE)
+    KB_STORE[:] = [r for r in KB_STORE if r.get("id") != doc_id]
+    return {"status":"deleted","id":doc_id} if len(KB_STORE) < before else {"status":"error","error":"doc not found"}
 
 @app.get("/api/v1/knowledge/{category}")
-async def get_knowledge(category: str):
+async def get_knowledge(category: str, _: None = Depends(auth_required)):
     """List KB docs for category (BNSP / Kemnaker RI / Reguler / Umum)."""
     if category not in PRODUCT_CATEGORIES:
         return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
@@ -715,12 +936,89 @@ async def health():
             "fonnte_ready":bool(FONNTE_TOKEN),
             "supabase_ready":HAS_SUPABASE,
             "kb_docs_memory":len(KB_STORE),
-            "kb_mode":"chunk+keyword"}
+            "kb_mode":"chunk+keyword",
+            "auth_enabled":AUTH_ENABLED,
+            "webhook_secured":bool(WEBHOOK_SECRET),
+            "rate_max":RATE_MAX,
+            "rate_window":RATE_WINDOW}
+
+@app.get("/api/v1/stats")
+async def get_stats(_: None = Depends(auth_required)):
+    """Statistik dashboard — dihitung dari data real (in-memory + Supabase bila ada)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    hot = warm = cold = 0
+    chat_in = 0
+    product_counts = {}
+    activity = {}
+
+    if HAS_SUPABASE and sb():
+        try:
+            rows = sb().table("customers").select("category,product").limit(2000).execute().data or []
+            for r in rows:
+                cat = r.get("category") or "Cold Lead"
+                if "Hot" in cat: hot += 1
+                elif "Warm" in cat: warm += 1
+                else: cold += 1
+                prod = r.get("product") or "Umum"
+                product_counts[prod] = product_counts.get(prod, 0) + 1
+        except Exception as e:
+            log.warning("[Stats] customers error: %s", e)
+        try:
+            start = (now - datetime.timedelta(days=6)).date().isoformat()
+            rows = sb().table("chats").select("timestamp").gte("timestamp", start).limit(5000).execute().data or []
+            for r in rows:
+                ts = r.get("timestamp")
+                if ts:
+                    activity[ts[:10]] = activity.get(ts[:10], 0) + 1
+        except Exception as e:
+            log.warning("[Stats] chats error: %s", e)
+    else:
+        for p, c in CUSTOMERS.items():
+            cat = c.get("category") or "Cold Lead"
+            if "Hot" in cat: hot += 1
+            elif "Warm" in cat: warm += 1
+            else: cold += 1
+            for m in (c.get("msgs") or []):
+                if m.get("dir") == "in":
+                    chat_in += 1
+                    activity[now.date().isoformat()] = activity.get(now.date().isoformat(), 0) + 1
+            prod = c.get("product") or "Umum"
+            product_counts[prod] = product_counts.get(prod, 0) + 1
+
+    total = hot + warm + cold
+    days = []
+    for i in range(6, -1, -1):
+        d = (now - datetime.timedelta(days=i)).date()
+        label = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"][d.weekday()]
+        days.append({"label": label, "date": d.isoformat(), "value": activity.get(d.isoformat(), 0)})
+
+    top_products = [{"name": k, "count": v, "sub": ""} for k, v in
+                    sorted(product_counts.items(), key=lambda x: x[1], reverse=True)[:5]]
+
+    return {"status": "success", "data": {
+        "chat_count": chat_in,
+        "hot": hot, "warm": warm, "cold": cold, "total": total,
+        "distribution": {
+            "hot": round(hot / total * 100) if total else 0,
+            "warm": round(warm / total * 100) if total else 0,
+            "cold": round(cold / total * 100) if total else 0,
+        },
+        "avg_response_sec": None,
+        "activity": days,
+        "top_products": top_products,
+        "response_trend": [],
+        "generated_at": now.isoformat(),
+    }}
 
 @app.post("/webhook/fonnte")
 async def webhook_fonnte(req: Request):
     """Webhook Fonnte: device-status {device,stateid} ATAU pesan masuk {sender,message,name}."""
-    payload = await req.json()
+    if not _webhook_ok(req):
+        raise HTTPException(401, "Invalid webhook token")
+    payload = await _read_json(req)
+    client_ip = req.client.host if req.client else "?"
+    if not _rate_limited(f"wh:{client_ip}:{payload.get('sender','')}", limit=120):
+        raise HTTPException(429, "Too many webhook requests")
     if "stateid" in payload or ("device" in payload and "message" not in payload and "sender" not in payload):
         log.info("[webhook-device-status] %s", json.dumps(payload, ensure_ascii=False)[:300])
         return {"status":"received","type":"device_status"}
@@ -736,17 +1034,46 @@ async def webhook_fonte(req: Request):
     """Alias PRD (Fonte) - parse payload Fonnte yang sama."""
     return await webhook_fonnte(req)
 
+def _webhook_ok(request: Request) -> bool:
+    """Verifikasi token webhook (header x-webhook-token ATAU query ?token=)."""
+    if not WEBHOOK_SECRET:
+        return True
+    header = request.headers.get("x-webhook-token", "")
+    query  = request.query_params.get("token", "")
+    try:
+        if header and hmac.compare_digest(header, WEBHOOK_SECRET):
+            return True
+        if query and hmac.compare_digest(query, WEBHOOK_SECRET):
+            return True
+    except Exception:
+        return False
+    return False
+
+@app.post("/api/v1/auth/login")
+async def auth_login(req: Request):
+    """Login -> JWT. {username, password} -> {token}. Butuh JWT_SECRET_KEY + ADMIN_PASSWORD."""
+    d = await _read_json(req)
+    u, p = d.get("username",""), d.get("password","")
+    if not (pyjwt and JWT_SECRET_KEY):
+        raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
+    if not ADMIN_PASSWORD:
+        raise HTTPException(403, "Login disabled: set ADMIN_PASSWORD")
+    if u != ADMIN_USER or p != ADMIN_PASSWORD:
+        raise HTTPException(401, "Invalid credentials")
+    token = create_token({"sub": u, "role": "admin"})
+    return {"status":"success","token":token,"expires_in":JWT_EXPIRATION}
+
 @app.post("/api/v1/assessment/analyze")
-async def assess(req: Request):
-    d = await req.json()
+async def assess(req: Request, _: None = Depends(auth_required)):
+    d = await _read_json(req)
     analysis = groq.analyze(d.get("message",""), d.get("chat_history",""))
-    AI_LOGS.append({"type":"assessment","input":d,"output":analysis,
-                    "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    _append_log({"type":"assessment","input":d,"output":analysis,
+                 "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
     return {"status":"success","data":analysis}
 
 @app.post("/api/v1/reply/generate")
-async def reply_generate(req: Request):
-    d = await req.json()
+async def reply_generate(req: Request, _: None = Depends(auth_required)):
+    d = await _read_json(req)
     kb = d.get("knowledge_chunks","")
     product = d.get("context",{}).get("product","Umum")
     message = d.get("message","")
@@ -781,23 +1108,52 @@ async def reply_generate(req: Request):
                  "sources":[],
                  "fallback": str(reply.get("fallback","Maaf kak, sale kami akan hubungi segeri")),
                  "kb_hits": []}
-    AI_LOGS.append({"customer_id":d.get("customer_id"),"reply":reply,
-                    "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    _append_log({"customer_id":d.get("customer_id"),"reply":reply,
+                 "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
     return {"status":"success","data":reply}
 
 @app.post("/api/v1/messages/send")
-async def send_message(req: Request):
+async def send_message(req: Request, _: None = Depends(auth_required)):
     """Kirim balasan WA via Fonnte. {to, text}"""
-    d = await req.json()
+    d = await _read_json(req)
     to, text = d.get("to",""), d.get("text","")
     if not to or not text:
         raise HTTPException(400, "to & text wajib")
+    client_ip = req.client.host if req.client else "?"
+    if not _rate_limited(f"send:{client_ip}:{to}"):
+        raise HTTPException(429, "Too many messages, please slow down")
     res = await fonnte_send(to, text)
     return {"status":"success","sent":res["status_code"]==200,"fonnte":res}
 
 @app.get("/api/v1/customers")
-async def list_customers():
-    return [{"phone":p, **c} for p,c in CUSTOMERS.items()]
+async def list_customers(_: None = Depends(auth_required)):
+    """List customer: gabungan in-memory (aktif) + Supabase (persisted)."""
+    out = [{"phone": p, **c} for p, c in CUSTOMERS.items()]
+    seen = set(CUSTOMERS.keys())
+    if HAS_SUPABASE and sb():
+        try:
+            result = sb().table("customers").select("*").order("last_updated", desc=True).limit(200).execute()
+            for row in (result.data or []):
+                phone = row.get("phone")
+                if not phone or phone in seen:
+                    continue
+                seen.add(phone)
+                out.append({
+                    "phone": phone,
+                    "name": row.get("name") or phone,
+                    "msgs": [],
+                    "unread": 0,
+                    "last": row.get("last_message") or "",
+                    "score": _to_int(row.get("last_score"), 0),
+                    "category": row.get("category") or "Cold Lead",
+                    "badge": row.get("badge") or "🔴",
+                    "created": row.get("last_updated") or "",
+                    "stage": "Awareness",
+                    "product": "Umum",
+                })
+        except Exception as e:
+            log.warning("[Customers] Supabase error: %s", e)
+    return out
 
 if __name__ == "__main__":
     import uvicorn
