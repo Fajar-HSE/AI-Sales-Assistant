@@ -780,7 +780,8 @@ async def auth_login(req: Request):
     if not (pyjwt and JWT_SECRET_KEY):
         raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
     d = await _read_json(req)
-    u, p = (d.get("username") or "").strip(), d.get("password","")
+    u, p = (d.get("username") or "").strip(), (d.get("password") or "").strip()
+    logging.info("LOGIN_ATTEMPT username=%r pwlen=%d", u, len(p))
     user = get_user_by_username(u)
     if not user or not verify_password(p, _pw_hash_for(u)):
         raise HTTPException(401, "Invalid credentials")
@@ -805,7 +806,6 @@ async def update_me(req: Request, cu: dict = Depends(get_current_user)):
     if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
     if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
     if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
-    if "groq_api_key" in d: fields["groq_api_key"] = str(d["groq_api_key"])
     if d.get("new_password"):
         if not d.get("current_password") or not verify_password(d["current_password"], _pw_hash_for(cu["username"])):
             raise HTTPException(400, "Password saat ini salah")
@@ -834,8 +834,7 @@ async def admin_create_user(req: Request, cu: dict = Depends(get_current_user)):
     u = create_user(uname, pw, role,
                     display_name=d.get("display_name") or uname,
                     fonnte_token=d.get("fonnte_token") or "",
-                    fonnte_from=d.get("fonnte_from_number") or "",
-                    groq_key=d.get("groq_api_key") or "")
+                    fonnte_from=d.get("fonnte_from_number") or "")
     return {"status":"success","data":public_user(u)}
 
 @app.put("/api/v1/admin/users/{uid}")
@@ -850,7 +849,6 @@ async def admin_update_user(uid: str, req: Request, cu: dict = Depends(get_curre
     if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
     if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
     if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
-    if "groq_api_key" in d: fields["groq_api_key"] = str(d["groq_api_key"])
     if "is_active" in d: fields["is_active"] = 1 if d["is_active"] else 0
     if d.get("new_password"):
         set_password(uid, str(d["new_password"]))

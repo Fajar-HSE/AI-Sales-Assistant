@@ -568,7 +568,6 @@ body.logged-out .app{display:none}
             <div class="field"><label>Nama Tampilan</label><input id="pfName" placeholder="Nama lengkap / panggilan"></div>
             <div class="field"><label>Nomor WhatsApp (Fonnte)</label><input id="pfFon" placeholder="62812..."></div>
             <div class="field"><label>Token Fonnte</label><input id="pfTok" type="password" placeholder="Token device Fonnte Anda"></div>
-            <div class="field"><label>Groq API Key (opsional)</label><input id="pfGroq" type="password" placeholder="Kosongkan = gunakan default server"></div>
             <hr class="hr-sep">
             <div class="field"><label>Password Baru</label><input id="pfNew" type="password" placeholder="Isi hanya jika ingin ganti"></div>
             <div class="field"><label>Password Saat Ini (untuk konfirmasi)</label><input id="pfCur" type="password" placeholder="Wajib jika ganti password"></div>
@@ -593,7 +592,6 @@ body.logged-out .app{display:none}
       <div class="field"><label>Role</label><select id="uRole"><option value="user">User</option><option value="admin">Admin</option></select></div>
       <div class="field"><label>Nomor WhatsApp (Fonnte)</label><input id="uFon" placeholder="62812..."></div>
       <div class="field"><label>Token Fonnte</label><input id="uTok" type="password" placeholder="Token device Fonnte"></div>
-      <div class="field"><label>Groq API Key (opsional)</label><input id="uGroq" type="password" placeholder="Opsional"></div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeUserModal()">Batal</button>
@@ -1305,7 +1303,6 @@ function openUserModal(){
   document.getElementById('uRole').value='user';
   document.getElementById('uFon').value='';
   document.getElementById('uTok').value='';
-  document.getElementById('uGroq').value='';
   document.getElementById('userModal').classList.add('open');
 }
 function closeUserModal(){ document.getElementById('userModal').classList.remove('open'); editingUserId=null; }
@@ -1317,8 +1314,7 @@ function saveUser(){
     display_name: document.getElementById('uName').value.trim(),
     role: document.getElementById('uRole').value,
     fonnte_from_number: document.getElementById('uFon').value.trim(),
-    fonnte_token: document.getElementById('uTok').value,
-    groq_api_key: document.getElementById('uGroq').value
+    fonnte_token: document.getElementById('uTok').value
   };
   const btn = document.getElementById('uSaveBtn');
   if(editingUserId){
@@ -1352,7 +1348,6 @@ function editUser(uid){
     document.getElementById('uRole').value = u.role;
     document.getElementById('uFon').value = u.fonnte_from_number||'';
     document.getElementById('uTok').value = '';
-    document.getElementById('uGroq').value = '';
     document.getElementById('userModal').classList.add('open');
   }).catch(e=>toast('Gagal load user: '+e.message));
 }
@@ -1375,7 +1370,6 @@ function loadProfile(){
     document.getElementById('pfName').value = u.display_name||'';
     document.getElementById('pfFon').value = u.fonnte_from_number||'';
     document.getElementById('pfTok').value = '';
-    document.getElementById('pfGroq').value = '';
     if(CURRENT_USER) CURRENT_USER.display_name = u.display_name||CURRENT_USER.display_name;
     if(CURRENT_USER){ document.getElementById('uiName').textContent = CURRENT_USER.display_name||CURRENT_USER.username; }
   }).catch(e=>toast('Gagal load profil: '+e.message));
@@ -1384,8 +1378,7 @@ function saveProfile(){
   const body = {
     display_name: document.getElementById('pfName').value.trim(),
     fonnte_from_number: document.getElementById('pfFon').value.trim(),
-    fonnte_token: document.getElementById('pfTok').value,
-    groq_api_key: document.getElementById('pfGroq').value
+    fonnte_token: document.getElementById('pfTok').value
   };
   const np = document.getElementById('pfNew').value;
   if(np){ body.new_password = np; body.current_password = document.getElementById('pfCur').value; }
