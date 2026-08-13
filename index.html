@@ -304,6 +304,31 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
   .field-row{grid-template-columns:1fr}
   .top-date{display:none}
 }
+/* ============ MULTI-USER / LOGIN SCREEN ============ */
+body.logged-out{overflow:hidden}
+body.logged-out .app{display:none}
+.admin-only{display:none}
+.scope-sel{font-size:12px; padding:6px 10px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--ink); max-width:200px}
+.login-screen{position:fixed; inset:0; z-index:200; display:none; align-items:center; justify-content:center;
+  background:radial-gradient(1200px 600px at 50% -10%, rgba(26,86,219,.18), transparent), var(--bg)}
+.login-screen.open{display:flex}
+.login-card{width:min(380px,92vw); background:var(--surface); border:1px solid var(--border); border-radius:16px;
+  box-shadow:var(--shadow); padding:28px 26px; text-align:center}
+.login-card .brand-logo{width:48px; height:48px; border-radius:13px; margin:0 auto 14px; font-size:20px}
+.login-card h2{font-size:18px; color:var(--ink); margin-bottom:4px}
+.login-card .sub{font-size:12.5px; color:var(--muted); margin-bottom:18px}
+.login-card .field{text-align:left; margin-bottom:12px}
+.login-card .field label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px}
+.login-card .login-err{color:var(--red); font-size:12px; margin-top:4px; text-align:left}
+.login-card .btn{width:100%; justify-content:center; margin-top:6px}
+.user-modal .field{margin-bottom:11px}
+.user-modal .field label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px}
+.chip{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; border-radius:99px; padding:2px 9px}
+.chip.blue{color:var(--primary); background:var(--primary-soft)}
+.chip.cat{color:var(--muted); background:var(--surface-2); border:1px solid var(--border)}
+.chip.hot{color:var(--green); background:var(--green-soft)}
+.chip.cold{color:var(--red); background:var(--red-soft)}
+.hr-sep{border:none; border-top:1px solid var(--border); margin:16px 0}
 </style>
 </head>
 <body>
@@ -327,20 +352,28 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
       </button>
       <button class="nav-item" data-page="inbox" onclick="go('inbox')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
-        Inbox <span class="nav-badge" id="navUnread">3</span>
+        Inbox <span class="nav-badge" id="navUnread">0</span>
       </button>
       <button class="nav-item" data-page="kb" onclick="go('kb')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
         Knowledge Base
       </button>
+      <button class="nav-item admin-only" data-page="users" onclick="go('users')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Users
+      </button>
+      <button class="nav-item" data-page="profile" onclick="go('profile')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+        Profil
+      </button>
     </nav>
     <div class="side-foot">
       <div class="proto-note">Live — terhubung ke backend &amp; API</div>
       <div class="user-row">
-        <div class="avatar">F</div>
+        <div class="avatar" id="uiAvatar">?</div>
         <div class="user-meta">
-          <div class="user-name">Fajar</div>
-          <div class="user-role">Admin</div>
+          <div class="user-name" id="uiName">—</div>
+          <div class="user-role" id="uiRole">—</div>
         </div>
         <button class="icon-btn" id="logoutBtn" onclick="doLogout()" title="Keluar / ganti akun" aria-label="Keluar" style="margin-left:auto;margin-right:6px">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -363,6 +396,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
       <span class="pill" id="pillGroq" title="Status LLM"><span class="dot" id="dotGroq"></span> <span id="lblGroq">Groq AI</span></span>
       <span class="pill" id="pillFonte" title="Status gateway WA"><span class="dot" id="dotFonte"></span> <span id="lblFonte">Fonte gateway</span></span>
       <span class="top-date num" id="topDate"></span>
+      <select id="scopeSel" class="scope-sel admin-only" onchange="onScopeChange()" style="display:none">
+        <option value="all">Semua user</option>
+      </select>
     </div>
 
     <div class="content">
@@ -505,6 +541,63 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
             <div class="kb-stat"><div class="v" id="kbStatUpdated">—</div><div class="l">Last Updated</div></div>
           </div>
         </section>
+
+      <!-- ============ PAGE: USERS (ADMIN) ============ -->
+      <section class="page" id="page-users">
+        <div class="card">
+          <div class="card-head">
+            <h3>Manajemen User</h3>
+            <span class="sub">Super-admin dapat membuat &amp; mengelola akun</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="openUserModal()">+ Tambah User</button>
+          </div>
+          <div class="card-body">
+            <table class="doc-table">
+              <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Nomor WA</th><th>Status</th><th style="width:200px">Aksi</th></tr></thead>
+              <tbody id="userBody"><tr><td colspan="6" style="text-align:center;color:var(--muted)">Memuat...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ PAGE: PROFILE ============ -->
+      <section class="page" id="page-profile">
+        <div class="card" style="max-width:660px">
+          <div class="card-head"><h3>Profil &amp; Pengaturan Akun</h3></div>
+          <div class="card-body">
+            <div class="field"><label>Username</label><input id="pfUser" disabled></div>
+            <div class="field"><label>Nama Tampilan</label><input id="pfName" placeholder="Nama lengkap / panggilan"></div>
+            <div class="field"><label>Nomor WhatsApp (Fonnte)</label><input id="pfFon" placeholder="62812..."></div>
+            <div class="field"><label>Token Fonnte</label><input id="pfTok" type="password" placeholder="Token device Fonnte Anda"></div>
+            <div class="field"><label>Groq API Key (opsional)</label><input id="pfGroq" type="password" placeholder="Kosongkan = gunakan default server"></div>
+            <hr class="hr-sep">
+            <div class="field"><label>Password Baru</label><input id="pfNew" type="password" placeholder="Isi hanya jika ingin ganti"></div>
+            <div class="field"><label>Password Saat Ini (untuk konfirmasi)</label><input id="pfCur" type="password" placeholder="Wajib jika ganti password"></div>
+            <button class="btn btn-primary" onclick="saveProfile()">Simpan Profil</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL USER (ADMIN) ============ -->
+<div class="modal-bg" id="userModal" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+  <div class="modal user-modal" style="max-width:420px">
+    <div class="modal-head"><h3 id="userModalTitle">Tambah User</h3>
+      <button class="icon-btn" onclick="closeUserModal()" aria-label="Tutup" title="Tutup"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Username</label><input id="uUser" placeholder="username"></div>
+      <div class="field"><label>Nama Tampilan</label><input id="uName" placeholder="Nama"></div>
+      <div class="field"><label>Password</label><input id="uPass" type="password" placeholder="password"></div>
+      <div class="field"><label>Role</label><select id="uRole"><option value="user">User</option><option value="admin">Admin</option></select></div>
+      <div class="field"><label>Nomor WhatsApp (Fonnte)</label><input id="uFon" placeholder="62812..."></div>
+      <div class="field"><label>Token Fonnte</label><input id="uTok" type="password" placeholder="Token device Fonnte"></div>
+      <div class="field"><label>Groq API Key (opsional)</label><input id="uGroq" type="password" placeholder="Opsional"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeUserModal()">Batal</button>
+      <button class="btn btn-primary" id="uSaveBtn" onclick="saveUser()">Simpan</button>
     </div>
   </div>
 </div>
@@ -536,18 +629,18 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<!-- ============ MODAL LOGIN ============ -->
-<div class="modal-bg" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
-  <div class="modal" style="max-width:360px">
-    <div class="modal-head"><h3 id="loginTitle">Masuk — Sales AI Assistant</h3></div>
-    <div class="modal-body">
-      <div class="field"><label for="loginUser">Username</label><input id="loginUser" type="text" autocomplete="username" placeholder="admin"></div>
-      <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" placeholder="••••••••"></div>
-      <div class="login-err" id="loginErr" style="display:none;color:var(--red);font-size:12px;margin-top:8px"></div>
+<!-- ============ LOGIN SCREEN ============ -->
+<div class="login-screen" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="login-card">
+    <div class="brand-logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
     </div>
-    <div class="modal-foot">
-      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Masuk</button>
-    </div>
+    <h2 id="loginTitle">Masuk</h2>
+    <div class="sub">Sales AI Assistant — ICC Holding</div>
+    <div class="field"><label for="loginUser">Username</label><input id="loginUser" type="text" autocomplete="username" placeholder="admin"></div>
+    <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" placeholder="••••••••"></div>
+    <div class="login-err" id="loginErr" style="display:none"></div>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Masuk</button>
   </div>
 </div>
 
@@ -565,6 +658,11 @@ const ICONS = {
 
 const CUSTOMERS = [];
 
+/* ============ MULTI-USER SESSION STATE ============ */
+let CURRENT_USER = null;     // {id, username, role, display_name, ...}
+let ADMIN_SCOPE = 'all';     // admin: 'all' | <user_id> sedang dilihat
+let editingUserId = null;    // untuk modal user (admin)
+
 let kbDocs = [];
 let kbCats = {};
 let kbTotalChunks = 0;
@@ -578,7 +676,7 @@ let editingDoc = null;
 let selectedFile = null;
 
 /* ============ NAVIGASI ============ */
-const TITLES = {dashboard:'Dashboard', inbox:'Inbox', kb:'Knowledge Base'};
+const TITLES = {dashboard:'Dashboard', inbox:'Inbox', kb:'Knowledge Base', users:'Manajemen User', profile:'Profil'};
 function go(page){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.page===page));
@@ -589,6 +687,8 @@ function go(page){
   if(page==='dashboard') renderActivity();
   if(page==='inbox'){ renderChatList(); renderActiveChat(); loadMessages(CUSTOMERS.find(x=>x.id===activeId)); }
   if(page==='kb') loadKb();
+  if(page==='users') refreshUsers();
+  if(page==='profile') loadProfile();
 }
 function toggleTheme(){
   const el = document.documentElement;
@@ -613,7 +713,7 @@ function errState(el, msg, fn){
 function loadStats(){
   const ids = ['statChat','statHot','statWarm','statCold','statResp'];
   ids.forEach(i=>{ const el=document.getElementById(i); if(el && (el.textContent==='—'||el.dataset.loading)){ el.textContent='…'; el.dataset.loading='1'; } });
-  apiFetch(apiBase()+'api/v1/stats')
+  apiFetch(apiBase()+'api/v1/stats'+ownerQS())
     .then(r=>r.json())
     .then(resp=>{
       if(!resp || resp.status!=='success' || !resp.data) throw new Error('response invalid');
@@ -736,7 +836,8 @@ function openChat(id){
 }
 function loadMessages(c){
   if(!c || !c.phone) return;
-  apiFetch(apiBase()+'api/v1/customers/'+encodeURIComponent(c.phone)+'/messages')
+  const oq = c.owner ? ('?owner='+encodeURIComponent(c.owner)) : ownerQS();
+  apiFetch(apiBase()+'api/v1/customers/'+encodeURIComponent(c.phone)+'/messages'+oq)
     .then(r=>r.json())
     .then(resp=>{
       if(!resp || resp.status!=='success' || !Array.isArray(resp.data)) return;
@@ -840,10 +941,11 @@ function sendMsg(text, ai){
   const th = document.getElementById('thread');
   th.scrollTop = th.scrollHeight;
   // Kirim via backend API ke Fonnte
+  const owner = (c && c.owner) ? c.owner : (CURRENT_USER && CURRENT_USER.role==='admin' && ADMIN_SCOPE!=='all' ? ADMIN_SCOPE : undefined);
   apiFetch(apiBase() + 'api/v1/messages/send', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({to:c.phone, text:text})
+    body:JSON.stringify({to:c.phone, text:text, owner:owner})
   }).then(r=>r.json()).then(res=>{
     if(res.sent) toast('Pesan terkirim ke WA');
     else toast('Kirim gagal: '+JSON.stringify(res.fonnte));
@@ -876,6 +978,7 @@ function regenerate(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       customer_id: c.id,
+      owner: (c && c.owner) ? c.owner : (CURRENT_USER && CURRENT_USER.role==='admin' && ADMIN_SCOPE!=='all' ? ADMIN_SCOPE : undefined),
       message: (c.msgs&&c.msgs.length)? c.msgs[c.msgs.length-1].d : '',
       context: {
         customer_name: c.name,
@@ -908,7 +1011,7 @@ function feedback(up){
 function loadKb(){
   const body = document.getElementById('docBody');
   if(!kbDocs.length) setLoading(body, 'Memuat dokumen knowledge base...');
-  apiFetch(apiBase()+'api/v1/knowledge')
+  apiFetch(apiBase()+'api/v1/knowledge'+ownerQS())
     .then(r=>r.json())
     .then(resp=>{
       if(!resp || resp.status!=='success' || !resp.data) throw new Error('response invalid');
@@ -982,8 +1085,8 @@ function openDocModal(id){
   document.getElementById('docModalTitle').textContent = id ? 'Edit Document' : 'Add Document';
   document.getElementById('docCategory').innerHTML = KB_CATS.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
   if(id){
-    apiFetch(apiBase()+'api/v1/knowledge/doc/'+encodeURIComponent(id))
-      .then(r=>r.json())
+      apiFetch(apiBase()+'api/v1/knowledge/doc/'+encodeURIComponent(id)+ownerQS())
+        .then(r=>r.json())
       .then(resp=>{
         const d = (resp && resp.data) || {};
         document.getElementById('docTitle').value = d.name||'';
@@ -1015,7 +1118,7 @@ function saveDoc(mode){
   if(!title){ toast('Judul wajib diisi'); return; }
   const content = document.getElementById('docContent').value;
   if(editingDoc){
-    apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(editingDoc), {
+    apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(editingDoc)+ownerQS(), {
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({name:title, category:cat, kb_text:content})
@@ -1029,7 +1132,7 @@ function saveDoc(mode){
     form.append('category', cat);
     form.append('name', title);
     toast('Sedang upload '+selectedFile.name.substring(0,20)+'...');
-    apiFetch(apiBase()+'api/v1/knowledge/upload', {
+    apiFetch(apiBase()+'api/v1/knowledge/upload'+ownerQS(), {
       method:'POST',
       body: form
     }).then(r=>r.json()).then(resp=>{
@@ -1043,7 +1146,7 @@ function saveDoc(mode){
 }
 function deleteDoc(id){
   if(!confirm('Hapus dokumen ini?')) return;
-  apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(id), {method:'DELETE'})
+  apiFetch(apiBase()+'api/v1/knowledge/'+encodeURIComponent(id)+ownerQS(), {method:'DELETE'})
     .then(r=>r.json()).then(resp=>{
       if(resp && resp.status==='error'){ toast(resp.message||'Gagal hapus'); return; }
       if(kbFilter) kbFilter = '';
@@ -1086,12 +1189,49 @@ function openLogin(msg){
   const err = document.getElementById('loginErr');
   if(msg){ err.style.display = 'block'; err.textContent = msg; }
   else err.style.display = 'none';
+  document.body.classList.add('logged-out');
   document.getElementById('loginModal').classList.add('open');
   setTimeout(()=>{ try{ document.getElementById('loginUser').focus(); }catch(e){} }, 50);
 }
 function closeLogin(){
   loginOpen = false;
   document.getElementById('loginModal').classList.remove('open');
+}
+/* Owner query-string untuk scope data (admin bisa lihat semua / spesifik user) */
+function ownerQS(){
+  if(CURRENT_USER && CURRENT_USER.role==='admin'){
+    if(ADMIN_SCOPE && ADMIN_SCOPE!=='all') return '?owner='+encodeURIComponent(ADMIN_SCOPE);
+    return '?owner=all';
+  }
+  return '';
+}
+function setupSession(){
+  const t = localStorage.getItem('apiToken');
+  if(!t){ openLogin('Masuk untuk mengakses dashboard'); return; }
+  apiFetch(apiBase()+'api/v1/me').then(r=>r.json()).then(me=>{
+    if(!me || me.status!=='success' || !me.data) throw new Error('invalid session');
+    CURRENT_USER = me.data;
+    ADMIN_SCOPE = 'all';
+    applyRoleUI();
+    if(CURRENT_USER.role==='admin'){ refreshUsers(); }
+    document.body.classList.remove('logged-out');
+    closeLogin();
+    loadHealth();
+    refreshAll();
+  }).catch(e=>{
+    localStorage.removeItem('apiToken');
+    CURRENT_USER = null;
+    openLogin('Sesi tidak valid. Masuk kembali.');
+  });
+}
+function applyRoleUI(){
+  const isAdmin = !!(CURRENT_USER && CURRENT_USER.role==='admin');
+  document.querySelectorAll('.admin-only').forEach(el=> el.style.display = isAdmin ? '' : 'none');
+  document.getElementById('uiName').textContent = (CURRENT_USER && (CURRENT_USER.display_name||CURRENT_USER.username)) || '—';
+  document.getElementById('uiRole').textContent = isAdmin ? 'Admin' : 'User';
+  const nm = (CURRENT_USER && (CURRENT_USER.display_name||CURRENT_USER.username)||'?');
+  document.getElementById('uiAvatar').textContent = (nm[0]||'?').toUpperCase();
+  document.getElementById('scopeSel').style.display = isAdmin ? '' : 'none';
 }
 function doLogin(){
   const u = document.getElementById('loginUser').value.trim();
@@ -1105,9 +1245,9 @@ function doLogin(){
   }).then(r=>r.json()).then(res=>{
     if(res && res.token){
       localStorage.setItem('apiToken', res.token);
-      closeLogin();
+      CURRENT_USER = (res.user && {id:res.user.id, username:res.user.username, role:res.user.role, display_name:res.user.display_name}) || null;
+      setupSession();
       toast('Login berhasil');
-      refreshAll();
     } else {
       openLogin(res.detail || res.error || 'Gagal login. Periksa username/password.');
     }
@@ -1116,18 +1256,146 @@ function doLogin(){
 }
 function doLogout(){
   localStorage.removeItem('apiToken');
+  CURRENT_USER = null; ADMIN_SCOPE = 'all';
   toast('Logout — sesi berakhir');
   openLogin('Sesi berakhir. Masuk kembali untuk lanjut.');
 }
 function checkAuth(){
-  apiFetch(apiBase()+'health')
-    .then(r=>r.json())
-    .then(h=>{
-      if(h && h.auth_enabled && !localStorage.getItem('apiToken')) openLogin('Masuk untuk mengakses dashboard');
-    }).catch(()=>{});
+  setupSession();
 }
 function refreshAll(){
   renderActivity(); loadCustomers(); loadKb(); loadHealth();
+}
+function onScopeChange(){
+  ADMIN_SCOPE = document.getElementById('scopeSel').value || 'all';
+  refreshAll();
+}
+/* ============ ADMIN: USER MANAGEMENT ============ */
+function refreshUsers(){
+  if(!CURRENT_USER || CURRENT_USER.role!=='admin') return;
+  apiFetch(apiBase()+'api/v1/admin/users').then(r=>r.json()).then(resp=>{
+    const users = resp.data || [];
+    const sel = document.getElementById('scopeSel');
+    const cur = sel.value || 'all';
+    sel.innerHTML = '<option value="all">Semua user</option>' +
+      users.map(u=>`<option value="${u.id}">${esc(u.display_name||u.username)} (${esc(u.role)})</option>`).join('');
+    if([...sel.options].some(o=>o.value===cur)) sel.value = cur; else sel.value = 'all';
+    ADMIN_SCOPE = sel.value;
+    document.getElementById('userBody').innerHTML = users.map(u=>`
+      <tr>
+        <td>${esc(u.username)}</td>
+        <td>${esc(u.display_name||'—')}</td>
+        <td><span class="chip ${u.role==='admin'?'blue':'cat'}">${esc(u.role)}</span></td>
+        <td class="num">${esc(u.fonnte_from_number||'—')}</td>
+        <td>${u.is_active?'<span class="chip hot">Aktif</span>':'<span class="chip cold">Non-aktif</span>'}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="editUser('${u.id}')">Edit</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleUser('${u.id}', ${!u.is_active})">${u.is_active?'Non-aktifkan':'Aktifkan'}</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteUser('${u.id}')">Hapus</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Belum ada user</td></tr>';
+  }).catch(e=>toast('Gagal memuat user: '+e.message));
+}
+function openUserModal(){
+  editingUserId = null;
+  document.getElementById('userModalTitle').textContent = 'Tambah User';
+  document.getElementById('uUser').value='';
+  document.getElementById('uName').value='';
+  document.getElementById('uPass').value='';
+  document.getElementById('uRole').value='user';
+  document.getElementById('uFon').value='';
+  document.getElementById('uTok').value='';
+  document.getElementById('uGroq').value='';
+  document.getElementById('userModal').classList.add('open');
+}
+function closeUserModal(){ document.getElementById('userModal').classList.remove('open'); editingUserId=null; }
+function saveUser(){
+  const username = document.getElementById('uUser').value.trim();
+  const password = document.getElementById('uPass').value;
+  const body = {
+    username: username,
+    display_name: document.getElementById('uName').value.trim(),
+    role: document.getElementById('uRole').value,
+    fonnte_from_number: document.getElementById('uFon').value.trim(),
+    fonnte_token: document.getElementById('uTok').value,
+    groq_api_key: document.getElementById('uGroq').value
+  };
+  const btn = document.getElementById('uSaveBtn');
+  if(editingUserId){
+    if(password) body.new_password = password;
+    btn.disabled = true;
+    apiFetch(apiBase()+'api/v1/admin/users/'+editingUserId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+      .then(r=>r.json()).then(resp=>{
+        if(resp.status!=='success') throw new Error(resp.message||'Gagal update');
+        closeUserModal(); refreshUsers(); toast('User diperbarui');
+      }).catch(e=>toast('Error: '+e.message)).finally(()=>btn.disabled=false);
+  } else {
+    if(!username || !password){ toast('Username & password wajib'); return; }
+    body.password = password;
+    btn.disabled = true;
+    apiFetch(apiBase()+'api/v1/admin/users', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+      .then(r=>r.json()).then(resp=>{
+        if(resp.status!=='success') throw new Error(resp.message||'Gagal buat user');
+        closeUserModal(); refreshUsers(); toast('User dibuat');
+      }).catch(e=>toast('Error: '+e.message)).finally(()=>btn.disabled=false);
+  }
+}
+function editUser(uid){
+  apiFetch(apiBase()+'api/v1/admin/users').then(r=>r.json()).then(resp=>{
+    const u = (resp.data||[]).find(x=>x.id===uid);
+    if(!u) return;
+    editingUserId = uid;
+    document.getElementById('userModalTitle').textContent = 'Edit User: '+u.username;
+    document.getElementById('uUser').value = u.username;
+    document.getElementById('uName').value = u.display_name||'';
+    document.getElementById('uPass').value = '';
+    document.getElementById('uRole').value = u.role;
+    document.getElementById('uFon').value = u.fonnte_from_number||'';
+    document.getElementById('uTok').value = '';
+    document.getElementById('uGroq').value = '';
+    document.getElementById('userModal').classList.add('open');
+  }).catch(e=>toast('Gagal load user: '+e.message));
+}
+function toggleUser(uid, active){
+  apiFetch(apiBase()+'api/v1/admin/users/'+uid, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({is_active: active?1:0})})
+    .then(r=>r.json()).then(resp=>{ if(resp.status==='success'){ refreshUsers(); toast(active?'User diaktifkan':'User dinon-aktifkan'); } else toast('Gagal'); })
+    .catch(e=>toast('Error: '+e.message));
+}
+function deleteUser(uid){
+  if(!confirm('Hapus user ini beserta datanya (customer, chat, KB)?')) return;
+  apiFetch(apiBase()+'api/v1/admin/users/'+uid, {method:'DELETE'})
+    .then(r=>r.json()).then(resp=>{ if(resp.status==='success'){ refreshUsers(); toast('User dihapus'); } else toast('Gagal hapus'); })
+    .catch(e=>toast('Error: '+e.message));
+}
+/* ============ PROFILE (semua user) ============ */
+function loadProfile(){
+  apiFetch(apiBase()+'api/v1/me').then(r=>r.json()).then(resp=>{
+    const u = resp.data || CURRENT_USER || {};
+    document.getElementById('pfUser').value = u.username||'';
+    document.getElementById('pfName').value = u.display_name||'';
+    document.getElementById('pfFon').value = u.fonnte_from_number||'';
+    document.getElementById('pfTok').value = '';
+    document.getElementById('pfGroq').value = '';
+    if(CURRENT_USER) CURRENT_USER.display_name = u.display_name||CURRENT_USER.display_name;
+    if(CURRENT_USER){ document.getElementById('uiName').textContent = CURRENT_USER.display_name||CURRENT_USER.username; }
+  }).catch(e=>toast('Gagal load profil: '+e.message));
+}
+function saveProfile(){
+  const body = {
+    display_name: document.getElementById('pfName').value.trim(),
+    fonnte_from_number: document.getElementById('pfFon').value.trim(),
+    fonnte_token: document.getElementById('pfTok').value,
+    groq_api_key: document.getElementById('pfGroq').value
+  };
+  const np = document.getElementById('pfNew').value;
+  if(np){ body.new_password = np; body.current_password = document.getElementById('pfCur').value; }
+  apiFetch(apiBase()+'api/v1/me', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r=>r.json()).then(resp=>{
+      if(resp.status!=='success') throw new Error(resp.message||'Gagal simpan');
+      if(np){ document.getElementById('pfNew').value=''; document.getElementById('pfCur').value=''; }
+      applyRoleUI();
+      toast('Profil disimpan');
+    }).catch(e=>toast('Error: '+e.message));
 }
 function catKey(cat, score){
   const m = {hot:'hot', warm:'warm', cold:'cold', 'Hot Lead':'hot', 'Warm Lead':'warm', 'Cold Lead':'cold'};
@@ -1135,7 +1403,7 @@ function catKey(cat, score){
   return score>=70 ? 'hot' : (score>=40 ? 'warm' : 'cold');
 }
 function loadCustomers(){
-  apiFetch(apiBase()+'api/v1/customers')
+  apiFetch(apiBase()+'api/v1/customers'+ownerQS())
     .then(r=>r.json())
     .then(list=>{
       if(!Array.isArray(list)) throw new Error('response invalid');
@@ -1146,6 +1414,7 @@ function loadCustomers(){
           id:'db'+c.phone,
           name: c.name || c.phone,
           phone: c.phone,
+          owner: c.owner_id || (CURRENT_USER ? CURRENT_USER.id : null),
           company: c.company || '—',
           product: c.product || 'Umum',
           stage: c.stage || 'Awareness',
@@ -1238,6 +1507,12 @@ function connectWS(){
 }
 function handleIncomingChat(data){
   if(!data || data.type !== 'chat_incoming') return;
+  // Multi-user: filter pesan masuk sesuai scope user yang login
+  const oid = data.owner_id || null;
+  if(CURRENT_USER){
+    if(CURRENT_USER.role !== 'admin'){ if(oid !== CURRENT_USER.id) return; }
+    else if(ADMIN_SCOPE && ADMIN_SCOPE !== 'all'){ if(oid !== ADMIN_SCOPE) return; }
+  }
   const a = data.analysis || {}, m = data.message || {};
   const phone = m.from || '6280000000000';
   const now = new Date().toTimeString().slice(0,5);
@@ -1249,6 +1524,7 @@ function handleIncomingChat(data){
   // Cari customer existing
   let cust = CUSTOMERS.find(c=>c.phone===phone);
   if(cust){
+    cust.owner = cust.owner || oid;
     // Update existing: tambah pesan, update last/unread/score
     cust.msgs.push({dir:'in', t:now, d:m.text||'', ai:false});
     cust.last = now;
@@ -1294,7 +1570,7 @@ function handleIncomingChat(data){
   }else{
     // Customer baru
     cust = {
-      id:'ws'+Date.now(), name:nm, phone, company:(data.customer&&data.customer.company)||'—',
+      id:'ws'+Date.now(), name:nm, phone, owner:oid, company:(data.customer&&data.customer.company)||'—',
       product:prod, stage:(data.customer&&data.customer.stage)||'Awareness',
       score:a.lead_score||50, category, last:now, unread:1,
       analysis:a.components||{intent:50,product_match:50,urgency:50,sentiment:50,chat_history:50,decision_maker:50},
@@ -1342,18 +1618,14 @@ function handleIncomingChat(data){
 }
 
 /* ============ INIT ============ */
+document.body.classList.add('logged-out'); // sembunyikan app sampai sesi valid
 connectWS();
-loadHealth();
-renderActivity();
-renderChatList();
-renderActiveChat();
-loadKb();
-loadCustomers();
-checkAuth();
+checkAuth(); // setupSession -> refreshAll (load semua data) bila token valid, else buka login
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){
-    if(loginOpen){ closeLogin(); }
+    if(loginOpen){ return; }
     else if(document.getElementById('docModal').classList.contains('open')){ closeDocModal(); }
+    else if(document.getElementById('userModal').classList.contains('open')){ closeUserModal(); }
   }
 });
 </script>

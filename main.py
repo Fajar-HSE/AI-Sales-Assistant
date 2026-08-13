@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Sales AI Assistant — FastAPI Backend v0.4
+Sales AI Assistant — FastAPI Backend v0.5 (Multi-User)
 Gateway WA : Fonnte (api.fonnte.com)
 LLM       : Groq (llama-3.3-70b-versatile, JSON mode) + fallback rule-based
-DB        : Supabase Postgres (customers, chats, products, leads, upload)
-Storage   : Supabase Storage (product uploads)
+DB        : SQLite (multi-user: users, customers, chats, knowledge_base, products)
+Auth      : JWT per-user + RBAC (admin = super-admin, user = own data only)
 Endpoints : /health, /ws, /webhook/fonnte (+ /webhook/fonte alias),
-            /api/v1/auth/login, /api/v1/messages/send, /api/v1/assessment/analyze,
+            /api/v1/auth/login, /api/v1/me, /api/v1/admin/users,
+            /api/v1/messages/send, /api/v1/assessment/analyze,
             /api/v1/reply/generate, /api/v1/customers,
             /api/v1/products/*, /api/v1/upload, /api/v1/knowledge/*
 Security  : webhook token, JWT/API-token auth, CORS restricted, rate limit
 """
-import os, json, hmac, hashlib, uuid, datetime, logging, io, time
+import os, json, hmac, hashlib, uuid, datetime, logging, io, time, sqlite3, threading
 import httpx
 
 from dotenv import load_dotenv
@@ -35,7 +36,6 @@ GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # Webhook — jika diisi, /webhook/* hanya menerima token yang cocok
-# (header "x-webhook-token" ATAU query "?token=" pada URL webhook Fonnte)
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 # Auth — JWT (login) dan/atau static API token. Jika keduanya kosong => dev mode terbuka.
@@ -57,48 +57,228 @@ FRONTEND_FILE = os.getenv("FRONTEND_FILE", os.path.join(os.path.dirname(os.path.
 cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()] or \
                ["http://localhost:8000", "http://127.0.0.1:8000"]
 
-app = FastAPI(title="Sales AI Assistant API", version="0.4.0")
+app = FastAPI(title="Sales AI Assistant API", version="0.5.0")
 app.add_middleware(CORSMiddleware,
                    allow_origins=cors_origins,
                    allow_methods=["*"],
                    allow_headers=["*"])
 
-# Supabase
+# Supabase (opsional, kompatibilitas env lama; store utama sekarang SQLite)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 HAS_SUPABASE = bool(SUPABASE_URL and (SUPABASE_KEY or SUPABASE_SERVICE_KEY))
-
-# ---------- SUPABASE CLIENT ----------
 try:
     from supabase import create_client
     supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY or SUPABASE_KEY)
     log.warning("[Supabase] Connected to %s", SUPABASE_URL)
 except Exception as e:
     supabase_admin = None
-    log.warning("[Supabase] Not available: %s", e)
+    log.warning("[Supabase] Not available (SQLite digunakan sebagai store utama): %s", e)
 
-# ---------- MOCK DATA (fallback in-memory) ----------
-CUSTOMERS = {}
-LEAD_SCORES = {}
-AI_LOGS = []
+# ---------- SQLITE STORE ----------
+DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app.db"))
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+_DB_LOCK = threading.Lock()
+
+def conn():
+    c = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c.row_factory = sqlite3.Row
+    return c
+
+def db_exec(sql, params=()):
+    with _DB_LOCK:
+        c = conn()
+        try:
+            c.execute(sql, params)
+            c.commit()
+        finally:
+            c.close()
+
+def db_query(sql, params=()):
+    c = conn()
+    try:
+        rows = c.execute(sql, params).fetchall()
+    finally:
+        c.close()
+    return [dict(r) for r in rows]
+
+def init_db():
+    db_exec("""CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        display_name TEXT DEFAULT '',
+        fonnte_token TEXT DEFAULT '',
+        fonnte_from_number TEXT DEFAULT '',
+        groq_api_key TEXT DEFAULT '',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+    )""")
+    db_exec("""CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        name TEXT DEFAULT '',
+        last_score INTEGER DEFAULT 0,
+        category TEXT DEFAULT 'Cold Lead',
+        badge TEXT DEFAULT '🔴',
+        product TEXT DEFAULT 'Umum',
+        last_message TEXT DEFAULT '',
+        unread INTEGER DEFAULT 0,
+        created_at TEXT,
+        last_updated TEXT,
+        UNIQUE(owner_id, phone)
+    )""")
+    db_exec("""CREATE TABLE IF NOT EXISTS chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        text TEXT DEFAULT '',
+        direction TEXT DEFAULT 'in',
+        timestamp TEXT,
+        lead_score INTEGER,
+        category TEXT,
+        intent_label TEXT,
+        sender_name TEXT
+    )""")
+    db_exec("""CREATE TABLE IF NOT EXISTS knowledge_base (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL,
+        category TEXT DEFAULT 'Umum',
+        name TEXT DEFAULT '',
+        filename TEXT DEFAULT '',
+        file_url TEXT DEFAULT '',
+        kb_text TEXT DEFAULT '',
+        chunks TEXT DEFAULT '[]',
+        chunk_count INTEGER DEFAULT 0,
+        uploaded_at TEXT
+    )""")
+    db_exec("""CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL,
+        name TEXT DEFAULT '',
+        category TEXT DEFAULT 'Umum',
+        description TEXT DEFAULT '',
+        price_range TEXT DEFAULT '',
+        duration TEXT DEFAULT '',
+        kb_text TEXT DEFAULT '',
+        created_at TEXT
+    )""")
+    db_exec("CREATE INDEX IF NOT EXISTS idx_cust_owner ON customers(owner_id)")
+    db_exec("CREATE INDEX IF NOT EXISTS idx_chats_owner_phone ON chats(owner_id, phone)")
+    db_exec("CREATE INDEX IF NOT EXISTS idx_kb_owner ON knowledge_base(owner_id)")
+
+# ---------- PASSWORD HASHING ----------
+def hash_password(pw: str) -> str:
+    salt = os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 100000).hex()
+    return f"pbkdf2_sha256$100000${salt}${dk}"
+
+def verify_password(pw: str, stored: str) -> bool:
+    try:
+        _, it, salt, dk = stored.split("$")
+        calc = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(it)).hex()
+        return hmac.compare_digest(calc, dk)
+    except Exception:
+        return False
+
+# ---------- USER HELPERS ----------
+def _row_to_user(r: dict) -> dict:
+    return {
+        "id": r["id"], "username": r["username"], "role": r["role"],
+        "display_name": r.get("display_name") or r["username"],
+        "fonnte_token": r.get("fonnte_token") or "",
+        "fonnte_from_number": r.get("fonnte_from_number") or "",
+        "groq_api_key": r.get("groq_api_key") or "",
+        "is_active": bool(r.get("is_active", 1)),
+        "created_at": r.get("created_at"),
+    }
+
+def get_user_by_id(uid: str):
+    rows = db_query("SELECT * FROM users WHERE id=?", (uid,))
+    return _row_to_user(rows[0]) if rows else None
+
+def get_user_by_username(uname: str):
+    rows = db_query("SELECT * FROM users WHERE username=?", (uname,))
+    return _row_to_user(rows[0]) if rows else None
+
+def list_users():
+    rows = db_query("SELECT * FROM users ORDER BY created_at ASC")
+    return [_row_to_user(r) for r in rows]
+
+def create_user(uname, pw, role="user", display_name="", fonnte_token="", fonnte_from="", groq_key=""):
+    uid = str(uuid.uuid4())
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    db_exec(
+        "INSERT INTO users (id,username,password_hash,role,display_name,fonnte_token,fonnte_from_number,groq_api_key,is_active,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,1,?,?)",
+        (uid, uname, hash_password(pw), role, display_name or uname, fonnte_token, fonnte_from, groq_key, now, now))
+    return get_user_by_id(uid)
+
+def update_user(uid, **fields):
+    allowed = {"role","display_name","fonnte_token","fonnte_from_number","groq_api_key","is_active"}
+    sets, params = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k}=?")
+            params.append(v)
+    if not sets:
+        return get_user_by_id(uid)
+    sets.append("updated_at=?")
+    params.append(datetime.datetime.now(datetime.timezone.utc).isoformat())
+    params.append(uid)
+    db_exec(f"UPDATE users SET {','.join(sets)} WHERE id=?", tuple(params))
+    return get_user_by_id(uid)
+
+def delete_user(uid):
+    with _DB_LOCK:
+        c = conn()
+        try:
+            c.execute("DELETE FROM users WHERE id=?", (uid,))
+            c.execute("DELETE FROM customers WHERE owner_id=?", (uid,))
+            c.execute("DELETE FROM chats WHERE owner_id=?", (uid,))
+            c.execute("DELETE FROM knowledge_base WHERE owner_id=?", (uid,))
+            c.execute("DELETE FROM products WHERE owner_id=?", (uid,))
+            c.commit()
+        finally:
+            c.close()
+
+def set_password(uid, pw):
+    db_exec("UPDATE users SET password_hash=?, updated_at=? WHERE id=?",
+            (hash_password(pw), datetime.datetime.now(datetime.timezone.utc).isoformat(), uid))
+
+def seed_admin():
+    rows = db_query("SELECT id FROM users LIMIT 1")
+    if rows:
+        return
+    uname = ADMIN_USER or "admin"
+    pw = ADMIN_PASSWORD or "admin123"
+    u = create_user(uname, pw, "admin", display_name=uname)
+    log.warning("[Seed] Admin dibuat: %s / (password dari env ADMIN_PASSWORD)", uname)
+
+init_db()
+seed_admin()
+
+# ---------- MOCK DATA (fallback in-memory untuk KB saat no-DB — tidak dipakai, SQLite selalu ada) ----------
+KB_STORE = []
+PRODUCT_CATEGORIES = ["BNSP", "Kemnaker RI", "Reguler", "Umum"]
+KB_CHUNK_SIZE = 500
+KB_CHUNK_OVERLAP = 80
 
 # ---------- HELPERS ----------
 def _to_int(v, default=50):
-    """Coerce ke int dengan aman (Groq kadang mengembalikan string)."""
     try:
         return int(float(v))
     except Exception:
         return default
 
 def _append_log(entry: dict, cap: int = 500) -> None:
-    """Tambah log AI dengan cap agar tidak bocor memori."""
-    AI_LOGS.append(entry)
-    if len(AI_LOGS) > cap:
-        del AI_LOGS[:len(AI_LOGS) - cap]
+    pass  # log AI disimpan ke chats; ringkas agar tidak bocor memori
 
 def _fmt_ts(ts):
-    """Format timestamp DB ke HH:MM (fallback aman)."""
     if not ts:
         return ""
     try:
@@ -115,7 +295,6 @@ def _fmt_ts(ts):
         return s[11:16] if len(s) >= 16 else s
 
 async def _read_json(req: Request) -> dict:
-    """Baca body JSON dengan aman; body invalid => 400 (bukan 500)."""
     try:
         d = await req.json()
         return d if isinstance(d, dict) else {}
@@ -123,43 +302,75 @@ async def _read_json(req: Request) -> dict:
         raise HTTPException(400, f"Invalid JSON payload: {e}")
 
 # ---------- AUTH ----------
-def create_token(payload: dict) -> str:
-    payload = dict(payload)
-    payload["exp"] = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=JWT_EXPIRATION)
+def create_token(user: dict) -> str:
+    if not (pyjwt and JWT_SECRET_KEY):
+        raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
+    payload = {
+        "sub": user["id"], "role": user["role"], "username": user["username"],
+        "name": user["display_name"],
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=JWT_EXPIRATION),
+    }
     return pyjwt.encode(payload, JWT_SECRET_KEY, algorithm="HS256")
 
-def _verify_token(token: str) -> bool:
-    if not token:
-        return False
-    if API_TOKEN:
-        try:
-            if hmac.compare_digest(token, API_TOKEN):
-                return True
-        except Exception:
-            pass
-    if pyjwt and JWT_SECRET_KEY:
-        try:
-            pyjwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
-            return True
-        except Exception:
-            return False
-    return False
+def _dev_user():
+    return {"id":"dev","role":"admin","username":"dev","display_name":"Dev","is_active":True,
+            "fonnte_token":FONNTE_TOKEN,"fonnte_from_number":FONNTE_FROM,"groq_api_key":GROQ_API_KEY}
 
-async def auth_required(request: Request, authorization: str = Header(default="")):
-    """Dependency auth untuk semua /api/v1/*. Dev mode (tanpa key) => terbuka."""
+async def get_current_user(request: Request, authorization: str = Header(default="")) -> dict:
+    """Dependency auth untuk semua /api/v1/*. Dev mode (tanpa key) => user dev admin."""
     if not AUTH_ENABLED:
-        return None
+        return _dev_user()
     scheme, _, token = authorization.partition(" ")
     token = token.strip() if scheme.lower() == "bearer" else authorization.strip()
-    if not _verify_token(token):
+    if not token and API_TOKEN:
+        return _dev_user()
+    if not token:
         raise HTTPException(401, "Unauthorized")
-    return None
+    # API_TOKEN static => admin dev
+    if API_TOKEN and hmac.compare_digest(token, API_TOKEN):
+        return _dev_user()
+    if pyjwt and JWT_SECRET_KEY:
+        try:
+            payload = pyjwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+            u = get_user_by_id(payload.get("sub"))
+            if not u:
+                raise HTTPException(401, "User tidak ditemukan")
+            if not u["is_active"]:
+                raise HTTPException(403, "User non-aktif")
+            return u
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(401, f"Token invalid: {e}")
+    raise HTTPException(401, "Unauthorized")
+
+def require_admin(cu: dict):
+    if cu["role"] != "admin":
+        raise HTTPException(403, "Hanya admin")
+
+def scope_owner(cu: dict, req_owner: str = None):
+    """Admin: req_owner='all' atau kosong => None (semua owner);
+       req_owner=<uid> => owner spesifik. User: selalu dirinya."""
+    if cu["role"] != "admin":
+        return cu["id"]
+    if req_owner in (None, "", "all", "me"):
+        return None  # semua
+    return req_owner
+
+def public_user(u: dict) -> dict:
+    return {
+        "id": u["id"], "username": u["username"], "role": u["role"],
+        "display_name": u["display_name"], "is_active": u["is_active"],
+        "created_at": u["created_at"],
+        "fonnte_from_number": u.get("fonnte_from_number",""),
+        "has_fonnte_token": bool(u.get("fonnte_token")),
+        "has_groq_key": bool(u.get("groq_api_key")),
+    }
 
 # ---------- RATE LIMITING (in-memory) ----------
 _RATE_HITS = {}
 
 def _rate_limited(key: str, limit: int = RATE_MAX, window: int = RATE_WINDOW) -> bool:
-    """True jika masih dalam kuota; False jika melebihi."""
     now = time.time()
     hits = [t for t in _RATE_HITS.get(key, []) if now - t < window]
     if len(hits) >= limit:
@@ -176,36 +387,29 @@ except Exception:
     Groq = None
 
 class GroqClient:
-    def __init__(self):
-        self.client = Groq(api_key=GROQ_API_KEY) if (GROQ_API_KEY and Groq) else None
+    def __init__(self, api_key: str = None):
+        key = api_key or GROQ_API_KEY
+        self.client = Groq(api_key=key) if (key and Groq) else None
         self.available = self.client is not None
+        self.api_key = key
 
     def _chat_json(self, system: str, user: str, timeout: int = 30) -> dict:
-        log.warning("[_chat_json] ENTRY - available=%s", self.available)
         if not self.available:
             raise RuntimeError("groq not configured")
-        log.warning("[_chat_json] calling Groq API...")
+        resp = self.client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role":"system","content":system + " Output in JSON format."},{"role":"user","content":user}],
+            temperature=0.3, max_tokens=800, top_p=0.9,
+            response_format={"type":"json_object"},
+            timeout=timeout,
+        )
+        content = resp.choices[0].message.content
         try:
-            resp = self.client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role":"system","content":system + " Output in JSON format."},{"role":"user","content":user}],
-                temperature=0.3, max_tokens=800, top_p=0.9,
-                response_format={"type":"json_object"},
-                timeout=timeout,
-            )
-            log.warning("[_chat_json] Groq API returned")
-            content = resp.choices[0].message.content
-            log.warning("[Groq raw] %s", content[:500])
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError as e:
-                log.warning("Groq JSON decode error: %s | content: %s", e, content[:500])
-                raise
-        except Exception as e:
-            log.warning("Groq API call failed: %s | type: %s", e, type(e).__name__)
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            log.warning("Groq JSON decode error: %s | content: %s", e, content[:500])
             raise
 
-    # ---- fallback rule-based (jika Groq gagal / tidak ada key) ----
     @staticmethod
     def _classify_intent(text: str) -> dict:
         t = text.lower()
@@ -220,7 +424,6 @@ class GroqClient:
         return {"intent":50,"label":"General question"}
 
     def analyze(self, message: str, chat_history: str = "") -> dict:
-        """Lead scoring 6 komponen via Groq; fallback rule-based."""
         try:
             def _esc2(s):
                 if not s: return ""
@@ -253,17 +456,14 @@ class GroqClient:
                 "analysis_timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
     def generate_reply(self, message: str, context: dict, kb: str = "") -> dict:
-        """Suggested reply via Groq + knowledge context; fallback template."""
         try:
-            # Escape braces in dynamic inputs so .format() doesnt choke on JSON in messages
             def _esc(s):
                 if not s: return ""
                 s = str(s)
                 return s.replace("{", "{{").replace("}", "}}")
-
             hist = context.get("chat_history") or ""
             if isinstance(hist, list):
-                hist = "\\n".join(str(x) for x in hist[-12:])
+                hist = "\n".join(str(x) for x in hist[-12:])
             prompt = REPLY_PROMPT.format(
                 customer_name=_esc(context.get("customer_name","Customer")),
                 message=_esc(message[:2000]),
@@ -274,12 +474,9 @@ class GroqClient:
                 knowledge_chunks=_esc(kb[:3000] or "(tidak ada konteks)")
             )
             out = self._chat_json("Anda adalah AI Sales Assistant profesional. Output in JSON format.", prompt)
-            log.warning("[generate_reply] Groq response type: %s, keys: %s", type(out).__name__, list(out.keys()) if isinstance(out, dict) else 'not dict')
-            # Handle case where Groq returns different structure
             if not isinstance(out, dict):
                 raise ValueError(f"Groq returned non-dict: {type(out)}")
             if "suggested_reply" not in out:
-                log.warning("[generate_reply] missing suggested_reply, full response: %s", str(out)[:500])
                 raise KeyError("suggested_reply missing from Groq response")
             return {"suggested_reply":out["suggested_reply"],"confidence_score":min(99,_to_int(out.get("confidence_score",70))),
                     "sources":out.get("sources",[]),"fallback":out.get("fallback","")}
@@ -297,7 +494,8 @@ class GroqClient:
                     "sources":[{"type":"faq","reference":f"FAQ - {context.get('product','Umum')}"}],
                     "fallback":"Maaf kak, saya kurang yakin. Sales kami akan menghubungi segera."}
 
-groq = GroqClient()
+def groq_for(user: dict) -> GroqClient:
+    return GroqClient(api_key=(user or {}).get("groq_api_key") or GROQ_API_KEY)
 
 # ---------- PROMPTS ----------
 ASSESSMENT_PROMPT = """Anda adalah AI Sales Assistant profesional untuk perusahaan training & sertifikasi (ICC Holding).
@@ -367,156 +565,25 @@ async def ws_endpoint(ws: WebSocket):
         manager.disconnect(ws)
 
 # ---------- FONNTE ----------
-async def fonnte_send(target: str, text: str) -> dict:
-    """Kirim pesan WA via Fonnte API."""
-    if not FONNTE_TOKEN:
+def fonnte_token_for(owner: dict) -> str:
+    return (owner or {}).get("fonnte_token") or FONNTE_TOKEN
+
+async def fonnte_send(target: str, text: str, token: str = None) -> dict:
+    """Kirim pesan WA via Fonnte API. Token diambil dari user owner (fallback env)."""
+    tk = token or FONNTE_TOKEN
+    if not tk:
         return {"status_code":0,"error":"FONNTE_TOKEN not set"}
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post("https://api.fonnte.com/send",
             data={"target":target,"message":text,"countryCode":"62"},
-            headers={"Authorization":FONNTE_TOKEN})
+            headers={"Authorization":tk})
         return {"status_code":r.status_code,"response":r.text}
 
-# ---------- SUPABASE HELPERS ----------
-def sb():
-    return supabase_admin
-
-def save_customer_db(phone: str, name: str, analysis: dict) -> dict:
-    """Save customer to Supabase (upsert)."""
-    if not HAS_SUPABASE:
-        return {"status":"mock","phone":phone}
-    try:
-        data = {
-            "phone": phone,
-            "name": name,
-            "last_score": analysis.get("lead_score", 0),
-            "category": analysis.get("category", "Cold Lead"),
-            "badge": analysis.get("badge", "🔴"),
-            "product": analysis.get("product", "Umum"),
-            "last_message": analysis.get("intent_label", ""),
-            "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-        result = sb().table("customers").upsert(data, on_conflict="phone").execute()
-        log.warning("[DB] Customer saved: %s", phone)
-        return {"status":"saved","data":result.data}
-    except Exception as e:
-        log.warning("[DB] Customer save error: %s", e)
-        return {"status":"error","error":str(e)}
-
-def save_chat_db(phone: str, text: str, direction: str, analysis: dict = None) -> dict:
-    """Save chat message to Supabase."""
-    if not HAS_SUPABASE:
-        return {"status":"mock","phone":phone}
-    try:
-        data = {
-            "phone": phone,
-            "text": text,
-            "direction": direction,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "lead_score": analysis.get("lead_score", 0) if analysis else None,
-            "category": analysis.get("category", "") if analysis else "",
-            "intent_label": analysis.get("intent_label", "") if analysis else ""
-        }
-        result = sb().table("chats").insert(data).execute()
-        log.warning("[DB] Chat saved: %s (%s)", phone, direction)
-        return {"status":"saved","data":result.data}
-    except Exception as e:
-        log.warning("[DB] Chat save error: %s", e)
-        return {"status":"error","error":str(e)}
-
-async def upload_to_supabase(file: UploadFile) -> dict:
-    """Upload file produk (PDF, gambar, dokumen K3/BNSP) ke Supabase Storage."""
-    if not HAS_SUPABASE:
-        # Mock mode — still need to consume the file to avoid errors
-        content = await file.read()
-        log.warning("[Upload] Mock mode — filename: %s, size: %d bytes", file.filename, len(content))
-        return {"status":"mock","filename":file.filename, "size": len(content)}
-    try:
-        content = await file.read()
-        ext = os.path.splitext(file.filename or "")[1]
-        fname = f"{uuid.uuid4().hex}{ext}"
-        bucket = "products"
-        res = sb().storage.from_(bucket).upload(fname, content)
-        if res.status_code == 200:
-            public_url = sb().storage.from_(bucket).get_public_url(fname)
-            log.warning("[Upload] %s -> %s", file.filename, public_url)
-            return {"status":"uploaded","filename":fname,"public_url":public_url}
-        else:
-            return {"status":"error","code":res.status_code,"response":getattr(res, 'text', str(res))}
-    except Exception as e:
-        log.warning("[Upload] Error: %s", e)
-        return {"status":"error","error":str(e)}
-
-# ---------- CUSTOMER MANAGEMENT ----------
-def build_customer(phone: str, name: str = None, analysis: dict = None) -> dict:
-    """Get or create customer record."""
-    if phone not in CUSTOMERS:
-        CUSTOMERS[phone] = {
-            "name": name or phone,
-            "msgs": [],
-            "unread": 0,
-            "last": "",
-            "score": analysis.get("lead_score", 0) if analysis else 0,
-            "category": analysis.get("category", "Cold Lead") if analysis else "Cold Lead",
-            "badge": analysis.get("badge", "🔴") if analysis else "🔴",
-            "product": analysis.get("product", "Umum") if analysis else "Umum",
-            "created": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-    else:
-        if name and CUSTOMERS[phone]["name"] == phone:
-            CUSTOMERS[phone]["name"] = name
-        if analysis:
-            CUSTOMERS[phone]["score"] = analysis["lead_score"]
-            CUSTOMERS[phone]["category"] = analysis["category"]
-            CUSTOMERS[phone]["badge"] = analysis["badge"]
-            CUSTOMERS[phone]["product"] = analysis.get("product", CUSTOMERS[phone].get("product", "Umum"))
-    # Also save to Supabase
-    if analysis:
-        save_customer_db(phone, CUSTOMERS[phone]["name"], analysis)
-    return {"phone": phone, **CUSTOMERS[phone]}
-
-def process_incoming(payload: dict):
-    """Parse payload Fonnte (format webhook reply message) -> broadcast. Return analysis."""
-    # format webhook reply message: {sender, message, name, pushname, device, ...}
-    sender = payload.get("sender") or payload.get("pengirim") or payload.get("from")
-    text   = payload.get("message") or payload.get("pesan") or payload.get("text")
-    name   = payload.get("name") or payload.get("pushname") or sender
-    if not sender or not text:
-        return None, None, None
-
-    cust  = build_customer(sender, name)
-    analysis = groq.analyze(text)
-    LEAD_SCORES[sender] = analysis
-    # Re-fetch customer AFTER analysis agar category/score/badge tersimpan di store
-    cust = build_customer(sender, name, analysis)
-
-    # Save to in-memory
-    cust["msgs"].append({"dir":"in","t":datetime.datetime.now().strftime("%H:%M"),"d":text})
-    cust["unread"] += 1
-    cust["last"] = text[:60]
-    cust["score"] = analysis["lead_score"]
-    cust["category"] = analysis["category"]
-    cust["badge"] = analysis["badge"]
-
-    # Save to Supabase
-    save_customer_db(sender, name, analysis)
-    save_chat_db(sender, text, "in", analysis)
-
-    log.info("[incoming] %s (%s) -> %s (score=%s)", sender, name, text[:60], analysis["lead_score"])
-    return cust, {"from":sender,"text":text,"timestamp":payload.get("timestamp") or payload.get("date")}, analysis
-
 # ---------- KNOWLEDGE BASE ----------
-PRODUCT_CATEGORIES = ["BNSP", "Kemnaker RI", "Reguler", "Umum"]
-KB_CHUNK_SIZE = 500
-KB_CHUNK_OVERLAP = 80
-KB_STORE = []  # in-memory fallback when Supabase off
-
 def chunk_text(text: str, size: int = KB_CHUNK_SIZE, overlap: int = KB_CHUNK_OVERLAP) -> list:
-    """Simple paragraph-aware chunking. No vector DB."""
     text = (text or "").strip()
     if not text:
         return []
-    # Split by blank lines first, then hard-cut long paragraphs
     parts, buf = [], []
     for para in text.replace("\r\n", "\n").split("\n\n"):
         para = para.strip()
@@ -532,7 +599,6 @@ def chunk_text(text: str, size: int = KB_CHUNK_SIZE, overlap: int = KB_CHUNK_OVE
                 if end >= len(para):
                     break
                 start = max(end - overlap, start + 1)
-    # Merge tiny tails into previous when possible
     out = []
     for p in parts:
         if out and len(out[-1]) + 1 + len(p) <= size:
@@ -546,14 +612,12 @@ def _tokens(q: str) -> set:
     return {w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in (q or "")).split() if len(w) >= 3 and w not in stop}
 
 def score_chunk(query: str, chunk: str, doc_name: str = "", category: str = "") -> float:
-    """Keyword score: token hits + phrase bonus + category/name boost."""
     toks = _tokens(query)
     if not toks:
         return 0.0
     blob = f"{doc_name} {category} {chunk}".lower()
     hits = sum(1 for t in toks if t in blob)
     score = hits / max(len(toks), 1)
-    # bigram phrase bonus
     words = [w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in query).split() if len(w) >= 3]
     for i in range(len(words) - 1):
         phrase = f"{words[i]} {words[i+1]}"
@@ -563,30 +627,26 @@ def score_chunk(query: str, chunk: str, doc_name: str = "", category: str = "") 
         score += 0.15
     return round(score, 4)
 
-def search_kb_chunks(query: str, category: str = None, limit: int = 5) -> list:
-    """Retrieve top chunks by keyword score from Supabase or in-memory."""
-    rows = []
-    if HAS_SUPABASE and sb():
-        try:
-            q = sb().from_("knowledge_base").select("id,name,category,chunks,kb_text,file_url,uploaded_at")
-            if category and category in PRODUCT_CATEGORIES:
-                q = q.eq("category", category)
-            result = q.order("uploaded_at", desc=True).limit(50).execute()
-            rows = result.data or []
-        except Exception as e:
-            log.warning("[KB search] Supabase error: %s", e)
-            rows = []
-    if not rows:
-        rows = [r for r in KB_STORE if (not category or r.get("category") == category)]
+def _kb_rows_for_viewer(cu: dict, owner_filter: str = None) -> list:
+    """Dokumen KB yang boleh dilih oleh cu. User: miliknya + global ('*').
+       Admin all: semua. Admin spesifik: milik user itu + global."""
+    if cu["role"] == "admin" and owner_filter in (None, "all"):
+        return db_query("SELECT * FROM knowledge_base ORDER BY uploaded_at DESC LIMIT 500")
+    if cu["role"] == "admin" and owner_filter:
+        return db_query("SELECT * FROM knowledge_base WHERE owner_id=? OR owner_id='*' ORDER BY uploaded_at DESC LIMIT 500", (owner_filter,))
+    # user
+    return db_query("SELECT * FROM knowledge_base WHERE owner_id=? OR owner_id='*' ORDER BY uploaded_at DESC LIMIT 500", (cu["id"],))
 
+def search_kb_chunks(query: str, category: str = None, limit: int = 5, cu: dict = None, owner_filter: str = None) -> list:
+    rows = _kb_rows_for_viewer(cu or _dev_user(), owner_filter)
+    if category and category in PRODUCT_CATEGORIES:
+        rows = [r for r in rows if r.get("category") == category]
     scored = []
     for row in rows:
         chunks = row.get("chunks") or []
         if isinstance(chunks, str):
-            try:
-                chunks = json.loads(chunks)
-            except Exception:
-                chunks = []
+            try: chunks = json.loads(chunks)
+            except Exception: chunks = []
         if not chunks and row.get("kb_text"):
             chunks = chunk_text(row["kb_text"])
         for ch in chunks:
@@ -597,16 +657,12 @@ def search_kb_chunks(query: str, category: str = None, limit: int = 5) -> list:
             if s <= 0:
                 continue
             scored.append({
-                "score": s,
-                "text": text[:1200],
-                "name": row.get("name",""),
-                "category": row.get("category",""),
-                "doc_id": row.get("id"),
+                "score": s, "text": text[:1200], "name": row.get("name",""),
+                "category": row.get("category",""), "doc_id": row.get("id"),
                 "chunk_idx": ch.get("idx") if isinstance(ch, dict) else None,
                 "file_url": row.get("file_url",""),
             })
     scored.sort(key=lambda x: x["score"], reverse=True)
-    # de-dupe near-identical tops
     out, seen = [], set()
     for item in scored:
         key = item["text"][:120]
@@ -626,393 +682,361 @@ def format_kb_context(chunks: list) -> str:
         parts.append(f"[{i}] ({c.get('category','?')} | {c.get('name','?')} | score={c.get('score',0)})\n{c.get('text','')}")
     return "\n\n".join(parts)
 
-@app.post("/api/v1/products")
-async def create_product(p: dict, _: None = Depends(auth_required)):
-    """Buat/update produk pelatihan. {name, category, description, price_range, duration, kb_text}"""
+async def upload_to_storage(file: UploadFile) -> dict:
+    """Upload file produk ke Supabase Storage (jika ada), else mock."""
     if not HAS_SUPABASE:
-        return {"status":"mock","product_id":str(uuid.uuid4())}
+        content = await file.read()
+        return {"status":"mock","filename":file.filename, "size": len(content)}
     try:
-        pid = p.get("id") or str(uuid.uuid4())
-        data = {
-            "id": pid,
-            "name": p["name"],
-            "category": p.get("category","Umum"),
-            "description": p.get("description",""),
-            "price_range": p.get("price_range",""),
-            "duration": p.get("duration",""),
-            "kb_text": p.get("kb_text",""),
-            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-        result = sb().table("products").upsert(data, on_conflict="id").execute()
-        log.warning("[Product] Created: %s (%s)", p["name"], data["category"])
-        return {"status":"saved","product_id":pid,"data":result.data}
+        content = await file.read()
+        ext = os.path.splitext(file.filename or "")[1]
+        fname = f"{uuid.uuid4().hex}{ext}"
+        res = supabase_admin.storage.from_("products").upload(fname, content)
+        if res.status_code == 200:
+            public_url = supabase_admin.storage.from_("products").get_public_url(fname)
+            return {"status":"uploaded","filename":fname,"public_url":public_url}
+        return {"status":"error","code":res.status_code,"response":getattr(res, 'text', str(res))}
     except Exception as e:
-        log.warning("[Product] Error: %s", e)
         return {"status":"error","error":str(e)}
 
-@app.get("/api/v1/products")
-async def list_products(category: str = None, _: None = Depends(auth_required)):
-    """List semua produk, optional filter category (BNSP/Kemnaker/Umum/Reguler)."""
-    if not HAS_SUPABASE:
-        return []
-    try:
-        q = sb().table("products").select("*")
-        if category:
-            q = q.eq("category", category)
-        result = q.execute()
-        return result.data or []
-    except Exception as e:
-        log.warning("[Products] Error: %s", e)
-        return {"status":"error","error":str(e)}
+# ---------- CUSTOMER / CHAT STORE (SQLite) ----------
+def ensure_customer(owner_id, phone, name=None, analysis=None):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    existing = db_query("SELECT * FROM customers WHERE owner_id=? AND phone=?", (owner_id, phone))
+    if existing:
+        if name and existing[0]["name"] in (None, "", phone):
+            db_exec("UPDATE customers SET name=?, last_updated=? WHERE id=?", (name, now, existing[0]["id"]))
+        if analysis:
+            db_exec("UPDATE customers SET last_score=?, category=?, badge=?, product=?, last_updated=? WHERE id=?",
+                    (analysis.get("lead_score",0), analysis.get("category","Cold Lead"), analysis.get("badge","🔴"),
+                     analysis.get("product","Umum"), now, existing[0]["id"]))
+        return db_query("SELECT * FROM customers WHERE owner_id=? AND phone=?", (owner_id, phone))[0]
+    db_exec("INSERT INTO customers (owner_id,phone,name,last_score,category,badge,product,created_at,last_updated) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (owner_id, phone, name or phone,
+             (analysis or {}).get("lead_score",0), (analysis or {}).get("category","Cold Lead"),
+             (analysis or {}).get("badge","🔴"), (analysis or {}).get("product","Umum"), now, now))
+    return db_query("SELECT * FROM customers WHERE owner_id=? AND phone=?", (owner_id, phone))[0]
 
-@app.get("/api/v1/products/{pid}")
-async def get_product(pid: str, _: None = Depends(auth_required)):
-    """Get detail produk by ID, termasuk KB text untuk Suggested Reply."""
-    if not HAS_SUPABASE:
-        return {"status":"mock","id":pid}
-    try:
-        result = sb().from_("products").select("*").eq("id", pid).single().execute()
-        return result.data
-    except Exception as e:
-        log.warning("[Product] Error: %s", e)
-        return {"status":"error","error":str(e)}
-
-@app.post("/api/v1/upload")
-async def upload_product_file(file: UploadFile = File(...), _: None = Depends(auth_required)):
-    """Upload file produk (PDF, gambar, dokumen K3/BNSP) ke Supabase Storage."""
-    result = await upload_to_supabase(file)
-    return result
-
-@app.post("/api/v1/knowledge/upload")
-async def upload_knowledge(file: UploadFile = File(...), category: str = Form("Umum"), name: str = Form(""), extract_text: bool = Form(True),
-                           _: None = Depends(auth_required)):
-    """Upload file KB (PDF/txt) -> extract text -> simpan ke tabel knowledge_base.
-    category: BNSP | Kemnaker | Reguler | Umum
-    """
-    if category not in PRODUCT_CATEGORIES:
-        category = "Umum"
-
-    # Read file content ONCE at the beginning
-    content_bytes = await file.read()
-    ext = os.path.splitext(file.filename or "")[1].lower()
-
-    kb_text = ""
-    if extract_text:
-        ext_lower = ext
-        try:
-            if ext_lower == ".txt" or ext_lower in [".md"]:
-                kb_text = content_bytes.decode("utf-8", errors="replace")
-            elif ext_lower == ".pdf":
-                try:
-                    from pypdf import PdfReader
-                    reader = PdfReader(io.BytesIO(content_bytes))
-                    kb_text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
-                except ImportError:
-                    import fitz  # PyMuPDF
-                    doc = fitz.open(stream=content_bytes, filetype="pdf")
-                    kb_text = "\n\n".join(page.get_text() for page in doc)
-                    doc.close()
-            elif ext_lower == ".docx":
-                from docx import Document
-                doc = Document(io.BytesIO(content_bytes))
-                kb_text = "\n\n".join(p.text or "" for p in doc.paragraphs if p.text.strip())
-            elif ext_lower in [".xlsx", ".xls"]:
-                from openpyxl import load_workbook
-                wb = load_workbook(io.BytesIO(content_bytes), read_only=True, data_only=True)
-                rows = []
-                for ws in wb.worksheets:
-                    for row in ws.iter_rows(values_only=True):
-                        cells = [str(c) for c in row if c is not None]
-                        if cells:
-                            rows.append("\t".join(cells))
-                kb_text = "\n".join(rows)
-                wb.close()
-            elif ext_lower in [".pptx"]:
-                from pptx import Presentation
-                prs = Presentation(io.BytesIO(content_bytes))
-                kb_text = "\n\n".join(shape.text or "" for slide in prs.slides for shape in slide.shapes if hasattr(shape,"text"))
-        except ImportError as ie:
-            log.warning("[KB Upload] Missing dep for %s: %s", ext, ie)
-        except Exception as e:
-            log.warning("[KB Upload] %s extraction error: %s", ext, e)
-            kb_text = f"(extraction error: {e})"
-
-    if not kb_text:
-        kb_text = f"File KB: {file.filename}. Buka dokumen untuk detail."
-
-    # Upload file ke storage (re-create UploadFile untuk reuse)
-    from fastapi import UploadFile as _UF
-    reuse_file = _UF(filename=file.filename, file=io.BytesIO(content_bytes), headers={})
-    upload_result = await upload_to_supabase(reuse_file)
-
-    chunks = chunk_text(kb_text)
-    doc_id = str(uuid.uuid4())
-    record = {
-        "id": doc_id,
-        "category": category,
-        "name": name or file.filename or "",
-        "filename": file.filename or "",
-        "file_url": upload_result.get("public_url", ""),
-        "kb_text": kb_text[:50000],
-        "chunks": chunks,
-        "chunk_count": len(chunks),
-        "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-    }
-
-    if HAS_SUPABASE:
-        try:
-            result = sb().table("knowledge_base").insert(record).execute()
-            log.warning("[KB Upload] %s -> category=%s, text_len=%d, chunks=%d", file.filename, category, len(kb_text), len(chunks))
-            return {"status":"saved","data":result.data, "kb_text_length": len(kb_text), "chunk_count": len(chunks), "chunks_preview": chunks[:3]}
-        except Exception as e:
-            # fallback: store without chunks column if schema missing
-            try:
-                bare = {k:v for k,v in record.items() if k not in ("chunks","chunk_count")}
-                result = sb().table("knowledge_base").insert(bare).execute()
-                log.warning("[KB Upload] saved without chunks col: %s", e)
-                KB_STORE.append(record)
-                return {"status":"saved_partial","data":result.data, "kb_text_length": len(kb_text), "chunk_count": len(chunks), "note":"chunks stored in-memory only; add JSONB column chunks", "error": str(e)}
-            except Exception as e2:
-                log.warning("[KB Upload] DB error: %s", e2)
-                KB_STORE.append(record)
-                return {"status":"saved_memory","file":upload_result, "kb_text_length": len(kb_text), "chunk_count": len(chunks), "error": str(e2)}
+def append_chat(owner_id, phone, text, direction, analysis=None, name=None):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    db_exec("INSERT INTO chats (owner_id,phone,text,direction,timestamp,lead_score,category,intent_label,sender_name) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (owner_id, phone, text, direction, now,
+             (analysis or {}).get("lead_score"), (analysis or {}).get("category"),
+             (analysis or {}).get("intent_label"), name))
+    if direction == "in":
+        db_exec("UPDATE customers SET unread=unread+1, last_message=?, last_updated=? WHERE owner_id=? AND phone=?",
+                (text[:200], now, owner_id, phone))
     else:
-        KB_STORE.append(record)
-        log.warning("[KB Upload] Memory mode — category=%s, name=%s, text_len=%d, chunks=%d", category, name or file.filename, len(kb_text), len(chunks))
-        return {"status":"mock_saved","category":category,"name":name or file.filename,"kb_text_length":len(kb_text),"chunk_count":len(chunks),"chunks_preview":chunks[:3],"file":upload_result}
+        db_exec("UPDATE customers SET unread=0, last_message=?, last_updated=? WHERE owner_id=? AND phone=?",
+                (text[:200], now, owner_id, phone))
 
-@app.get("/api/v1/knowledge/search")
-async def knowledge_search(q: str = "", cat: str = None, limit: int = 5, _: None = Depends(auth_required)):
-    """Keyword search over KB chunks (Option A: no vector)."""
-    if not q.strip():
-        return {"status":"error","error":"q wajib"}
-    category = None
-    if cat and cat.strip() and cat.strip() in PRODUCT_CATEGORIES:
-        category = cat.strip()
-    hits = search_kb_chunks(q, category=category, limit=max(1, min(limit, 20)))
-    return {"status":"success","data":{"query":q,"category":category,"count":len(hits),"hits":hits}}
-
-def _kb_rows(category: str = None) -> list:
-    """Ambil baris KB dari Supabase (fallback in-memory), opsional filter kategori."""
-    rows = []
-    if HAS_SUPABASE and sb():
-        try:
-            q = sb().from_("knowledge_base").select("id,name,category,filename,file_url,uploaded_at,chunk_count,kb_text,chunks")
-            result = q.order("uploaded_at", desc=True).limit(500).execute()
-            rows = result.data or []
-        except Exception as e:
-            log.warning("[Knowledge] Error: %s", e)
-            rows = []
-    if not rows:
-        rows = list(KB_STORE)
-    if category:
-        rows = [r for r in rows if r.get("category") == category]
-    return rows
-
-def _kb_doc_dict(p: dict) -> dict:
-    ch = p.get("chunks") or []
-    if isinstance(ch, str):
-        try:
-            ch = json.loads(ch)
-        except Exception:
-            ch = []
+def get_customer_dict(row, msgs=None):
     return {
-        "id": p.get("id"),
-        "name": p.get("name"),
-        "category": p.get("category"),
-        "filename": p.get("filename", ""),
-        "url": p.get("file_url"),
-        "uploaded_at": p.get("uploaded_at"),
-        "chunk_count": p.get("chunk_count") or len(ch),
-        "preview": (p.get("kb_text") or "")[:400],
-        "kb_text": p.get("kb_text") or "",
+        "phone": row["phone"], "name": row.get("name") or row["phone"],
+        "owner_id": row.get("owner_id"),
+        "score": row.get("last_score",0) or 0, "category": row.get("category") or "Cold Lead",
+        "badge": row.get("badge") or "🔴", "product": row.get("product") or "Umum",
+        "last": row.get("last_message") or "", "unread": row.get("unread",0) or 0,
+        "created": row.get("created_at"), "stage": "Awareness", "msgs": msgs or [],
     }
 
-@app.get("/api/v1/knowledge")
-async def list_knowledge(category: str = None, _: None = Depends(auth_required)):
-    """List semua dokumen KB (opsional filter category) + hitungan per kategori."""
-    if category and category not in PRODUCT_CATEGORIES:
-        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
-    rows = _kb_rows(category)
-    docs = [_kb_doc_dict(r) for r in rows]
-    counts = {c: 0 for c in PRODUCT_CATEGORIES}
-    for d in docs:
-        counts[d.get("category")] = counts.get(d.get("category"), 0) + 1
-    total_chunks = sum(d.get("chunk_count") or 0 for d in docs)
-    return {"status":"success","data":{
-        "category": category,
-        "count": len(docs),
-        "docs": docs,
-        "category_counts": counts,
-        "total_chunks": total_chunks,
-    }}
-
-@app.get("/api/v1/knowledge/doc/{doc_id}")
-async def get_knowledge_doc(doc_id: str, _: None = Depends(auth_required)):
-    """Detail satu dokumen KB (termasuk kb_text penuh untuk edit)."""
-    for r in _kb_rows():
-        if r.get("id") == doc_id:
-            return {"status":"success","data":_kb_doc_dict(r)}
-    return {"status":"error","error":"doc not found"}
-
-@app.put("/api/v1/knowledge/{doc_id}")
-async def update_knowledge(doc_id: str, p: dict, _: None = Depends(auth_required)):
-    """Update name/category/kb_text dokumen KB (re-chunk)."""
-    name = str(p.get("name", "")).strip()
-    category = str(p.get("category", "")).strip()
-    kb_text = str(p.get("kb_text", "") or "").strip()
-    if category and category not in PRODUCT_CATEGORIES:
-        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
-    if not name and not kb_text:
-        return {"status":"error","error":"name atau kb_text wajib"}
-    chunks = chunk_text(kb_text) if kb_text else None
-    if HAS_SUPABASE and sb():
-        try:
-            data = {}
-            if name:
-                data["name"] = name
-            if category:
-                data["category"] = category
-            if kb_text:
-                data["kb_text"] = kb_text[:50000]
-                data["chunks"] = chunks
-                data["chunk_count"] = len(chunks)
-            result = sb().table("knowledge_base").update(data).eq("id", doc_id).execute()
-            return {"status":"saved","data":result.data}
-        except Exception as e:
-            log.warning("[Knowledge] Update error: %s", e)
-            return {"status":"error","error":str(e)}
-    for r in KB_STORE:
-        if r.get("id") == doc_id:
-            if name:
-                r["name"] = name
-            if category:
-                r["category"] = category
-            if kb_text:
-                r["kb_text"] = kb_text[:50000]
-                r["chunks"] = chunks
-                r["chunk_count"] = len(chunks)
-            return {"status":"saved","id":doc_id}
-    return {"status":"error","error":"doc not found"}
-
-@app.delete("/api/v1/knowledge/{doc_id}")
-async def delete_knowledge(doc_id: str, _: None = Depends(auth_required)):
-    """Hapus dokumen KB."""
-    if HAS_SUPABASE and sb():
-        try:
-            sb().table("knowledge_base").delete().eq("id", doc_id).execute()
-            return {"status":"deleted","id":doc_id}
-        except Exception as e:
-            log.warning("[Knowledge] Delete error: %s", e)
-            return {"status":"error","error":str(e)}
-    before = len(KB_STORE)
-    KB_STORE[:] = [r for r in KB_STORE if r.get("id") != doc_id]
-    return {"status":"deleted","id":doc_id} if len(KB_STORE) < before else {"status":"error","error":"doc not found"}
-
-@app.get("/api/v1/knowledge/{category}")
-async def get_knowledge(category: str, _: None = Depends(auth_required)):
-    """List KB docs for category (BNSP / Kemnaker RI / Reguler / Umum)."""
-    if category not in PRODUCT_CATEGORIES:
-        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
-    rows = []
-    if HAS_SUPABASE and sb():
-        try:
-            result = sb().from_("knowledge_base").select("id,name,category,file_url,uploaded_at,chunk_count,kb_text,chunks").eq("category", category).order("uploaded_at", desc=True).execute()
-            rows = result.data or []
-        except Exception as e:
-            log.warning("[Knowledge] Error: %s", e)
-            rows = []  # fallback to in-memory
-    if not rows:
-        rows = [r for r in KB_STORE if r.get("category") == category]
-    docs = []
-    for p in rows:
-        ch = p.get("chunks") or []
-        if isinstance(ch, str):
-            try: ch = json.loads(ch)
-            except Exception: ch = []
-        docs.append({
-            "id": p.get("id"),
-            "name": p.get("name"),
-            "category": p.get("category"),
-            "url": p.get("file_url"),
-            "uploaded_at": p.get("uploaded_at"),
-            "chunk_count": p.get("chunk_count") or len(ch),
-            "preview": (p.get("kb_text") or "")[:400],
-        })
-    return {"category":category,"docs":docs,"count":len(docs)}
+def process_incoming(payload: dict, owner: dict):
+    sender = payload.get("sender") or payload.get("pengirim") or payload.get("from")
+    text   = payload.get("message") or payload.get("pesan") or payload.get("text")
+    name   = payload.get("name") or payload.get("pushname") or sender
+    if not sender or not text:
+        return None, None, None
+    g = groq_for(owner)
+    analysis = g.analyze(text)
+    cust_row = ensure_customer(owner["id"], sender, name, analysis)
+    append_chat(owner["id"], sender, text, "in", analysis, name)
+    cust = get_customer_dict(cust_row)
+    msg = {"from":sender,"text":text,"timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    log.info("[incoming] owner=%s %s (%s) -> %s (score=%s)", owner["id"], sender, name, text[:60], analysis["lead_score"])
+    return cust, msg, analysis
 
 # ---------- ROUTES ----------
 @app.get("/", include_in_schema=False)
 async def serve_frontend():
-    """Sajikan frontend app - https://amcicccrm.my.id/salesai/"""
     return FileResponse(FRONTEND_FILE)
 
 @app.get("/health")
 async def health():
-    return {"status":"ok","groq_ready":groq.available,"groq_model":GROQ_MODEL,
-            "fonnte_ready":bool(FONNTE_TOKEN),
-            "supabase_ready":HAS_SUPABASE,
-            "kb_docs_memory":len(KB_STORE),
-            "kb_mode":"chunk+keyword",
+    users = db_query("SELECT COUNT(*) c FROM users")
+    return {"status":"ok","version":"0.5.0","multi_user":True,
+            "groq_ready":bool(GROQ_API_KEY or any(u["groq_api_key"] for u in list_users())),
+            "groq_model":GROQ_MODEL,
+            "fonnte_ready":bool(FONNTE_TOKEN or any(u["fonnte_token"] for u in list_users())),
+            "db":"sqlite","user_count":users[0]["c"] if users else 0,
             "auth_enabled":AUTH_ENABLED,
             "webhook_secured":bool(WEBHOOK_SECRET),
-            "rate_max":RATE_MAX,
-            "rate_window":RATE_WINDOW}
+            "rate_max":RATE_MAX,"rate_window":RATE_WINDOW}
 
+# ---------- AUTH ----------
+@app.post("/api/v1/auth/login")
+async def auth_login(req: Request):
+    if not (pyjwt and JWT_SECRET_KEY):
+        raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
+    d = await _read_json(req)
+    u, p = (d.get("username") or "").strip(), d.get("password","")
+    user = get_user_by_username(u)
+    if not user or not verify_password(p, _pw_hash_for(u)):
+        raise HTTPException(401, "Invalid credentials")
+    if not user["is_active"]:
+        raise HTTPException(403, "User non-aktif")
+    token = create_token(user)
+    return {"status":"success","token":token,"expires_in":JWT_EXPIRATION,
+            "user":{"id":user["id"],"username":user["username"],"role":user["role"],"display_name":user["display_name"]}}
+
+def _pw_hash_for(username):
+    rows = db_query("SELECT password_hash FROM users WHERE username=?", (username,))
+    return rows[0]["password_hash"] if rows else ""
+
+@app.get("/api/v1/me")
+async def me(cu: dict = Depends(get_current_user)):
+    return {"status":"success","data":public_user(cu)}
+
+@app.put("/api/v1/me")
+async def update_me(req: Request, cu: dict = Depends(get_current_user)):
+    d = await _read_json(req)
+    fields = {}
+    if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
+    if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
+    if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
+    if "groq_api_key" in d: fields["groq_api_key"] = str(d["groq_api_key"])
+    if d.get("new_password"):
+        if not d.get("current_password") or not verify_password(d["current_password"], _pw_hash_for(cu["username"])):
+            raise HTTPException(400, "Password saat ini salah")
+        set_password(cu["id"], str(d["new_password"]))
+    if fields:
+        update_user(cu["id"], **fields)
+    return {"status":"success","data":public_user(get_user_by_id(cu["id"]))}
+
+# ---------- ADMIN: USER MANAGEMENT ----------
+@app.get("/api/v1/admin/users")
+async def admin_list_users(cu: dict = Depends(get_current_user)):
+    require_admin(cu)
+    return {"status":"success","data":[public_user(u) for u in list_users()]}
+
+@app.post("/api/v1/admin/users")
+async def admin_create_user(req: Request, cu: dict = Depends(get_current_user)):
+    require_admin(cu)
+    d = await _read_json(req)
+    uname = (d.get("username") or "").strip()
+    pw = d.get("password") or ""
+    role = "admin" if d.get("role") == "admin" else "user"
+    if not uname or not pw:
+        raise HTTPException(400, "username & password wajib")
+    if get_user_by_username(uname):
+        raise HTTPException(409, "Username sudah dipakai")
+    u = create_user(uname, pw, role,
+                    display_name=d.get("display_name") or uname,
+                    fonnte_token=d.get("fonnte_token") or "",
+                    fonnte_from=d.get("fonnte_from_number") or "",
+                    groq_key=d.get("groq_api_key") or "")
+    return {"status":"success","data":public_user(u)}
+
+@app.put("/api/v1/admin/users/{uid}")
+async def admin_update_user(uid: str, req: Request, cu: dict = Depends(get_current_user)):
+    require_admin(cu)
+    if uid == cu["id"] and (req and (await _read_json(req)).get("role") == "user"):
+        # cegah admin menurunkan dirinya sendiri
+        raise HTTPException(400, "Tidak bisa menurunkan role sendiri")
+    d = await _read_json(req)
+    fields = {}
+    if "role" in d: fields["role"] = "admin" if d["role"] == "admin" else "user"
+    if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
+    if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
+    if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
+    if "groq_api_key" in d: fields["groq_api_key"] = str(d["groq_api_key"])
+    if "is_active" in d: fields["is_active"] = 1 if d["is_active"] else 0
+    if d.get("new_password"):
+        set_password(uid, str(d["new_password"]))
+    if fields:
+        update_user(uid, **fields)
+    u = get_user_by_id(uid)
+    if not u:
+        raise HTTPException(404, "User tidak ditemukan")
+    return {"status":"success","data":public_user(u)}
+
+@app.delete("/api/v1/admin/users/{uid}")
+async def admin_delete_user(uid: str, cu: dict = Depends(get_current_user)):
+    require_admin(cu)
+    if uid == cu["id"]:
+        raise HTTPException(400, "Tidak bisa menghapus diri sendiri")
+    if not get_user_by_id(uid):
+        raise HTTPException(404, "User tidak ditemukan")
+    delete_user(uid)
+    return {"status":"success","deleted":uid}
+
+# ---------- WHATSAPP WEBHOOK ----------
+def _webhook_owner(req: Request) -> dict:
+    uid = req.query_params.get("uid")
+    if uid:
+        u = get_user_by_id(uid)
+        if u and u["is_active"]:
+            return u
+    # fallback dev: user pertama
+    rows = db_query("SELECT * FROM users LIMIT 1")
+    return _row_to_user(rows[0]) if rows else _dev_user()
+
+def _webhook_ok(request: Request) -> bool:
+    if not WEBHOOK_SECRET:
+        return True
+    header = request.headers.get("x-webhook-token", "")
+    query  = request.query_params.get("token", "")
+    try:
+        if header and hmac.compare_digest(header, WEBHOOK_SECRET):
+            return True
+        if query and hmac.compare_digest(query, WEBHOOK_SECRET):
+            return True
+    except Exception:
+        return False
+    return False
+
+@app.post("/webhook/fonnte")
+async def webhook_fonnte(req: Request):
+    if not _webhook_ok(req):
+        raise HTTPException(401, "Invalid webhook token")
+    payload = await _read_json(req)
+    client_ip = req.client.host if req.client else "?"
+    if not _rate_limited(f"wh:{client_ip}:{payload.get('sender','')}", limit=120):
+        raise HTTPException(429, "Too many webhook requests")
+    if "stateid" in payload or ("device" in payload and "message" not in payload and "sender" not in payload):
+        return {"status":"received","type":"device_status"}
+    owner = _webhook_owner(req)
+    cust, msg, analysis = process_incoming(payload, owner)
+    if cust is None:
+        return {"status":"received","type":"skip"}
+    await manager.broadcast({"type":"chat_incoming","customer":cust,"message":msg,"analysis":analysis,
+                             "owner_id":owner["id"]})
+    return {"status":"received","type":"message"}
+
+@app.post("/webhook/fonte")
+async def webhook_fonte(req: Request):
+    return await webhook_fonnte(req)
+
+# ---------- ANALYTICS / REPLY ----------
+@app.post("/api/v1/assessment/analyze")
+async def assess(req: Request, cu: dict = Depends(get_current_user)):
+    d = await _read_json(req)
+    g = groq_for(cu)
+    analysis = g.analyze(d.get("message",""), d.get("chat_history",""))
+    return {"status":"success","data":analysis}
+
+@app.post("/api/v1/reply/generate")
+async def reply_generate(req: Request, cu: dict = Depends(get_current_user)):
+    d = await _read_json(req)
+    kb = d.get("knowledge_chunks","")
+    product = d.get("context",{}).get("product","Umum")
+    message = d.get("message","")
+    hits = []
+    if not kb:
+        cat_match = None
+        for cat in PRODUCT_CATEGORIES:
+            if cat.lower() in (product or "").lower() or cat.lower() in (message or "").lower():
+                cat_match = cat
+                break
+        owner_filter = scope_owner(cu, d.get("owner"))
+        hits = search_kb_chunks(message or product, category=cat_match, limit=5, cu=cu, owner_filter=owner_filter)
+        if not hits and cat_match:
+            hits = search_kb_chunks(message or product, category=None, limit=5, cu=cu, owner_filter=owner_filter)
+        kb = format_kb_context(hits)
+    g = groq_for(cu)
+    reply = g.generate_reply(message, d.get("context",{}), kb)
+    if isinstance(reply, dict) and "suggested_reply" in reply:
+        reply["kb_hits"] = [{"name":h.get("name"),"category":h.get("category"),"score":h.get("score"),"chunk_idx":h.get("chunk_idx")} for h in hits]
+        extra = [{"type":"kb","reference":f"{h.get('category','')}/{h.get('name','')}#{h.get('chunk_idx')}"} for h in hits[:3]]
+        reply["sources"] = (reply.get("sources") or []) + extra
+        reply["confidence"] = reply.get("confidence_score", 0)
+    else:
+        reply = {"suggested_reply":"(fallback error)","confidence_score":20,"sources":[],"fallback":"error","kb_hits":[]}
+    return {"status":"success","data":reply}
+
+# ---------- MESSAGES ----------
+@app.post("/api/v1/messages/send")
+async def send_message(req: Request, cu: dict = Depends(get_current_user)):
+    d = await _read_json(req)
+    to, text = d.get("to",""), d.get("text","")
+    if not to or not text:
+        raise HTTPException(400, "to & text wajib")
+    # Tentukan owner token: admin bisa kirim atas nama user lain (owner di body)
+    owner_id = scope_owner(cu, d.get("owner"))
+    if owner_id is None:
+        owner_id = cu["id"]  # admin tanpa owner spesifik -> kirim pakai token sendiri
+    owner = cu if owner_id == cu["id"] else (get_user_by_id(owner_id) or cu)
+    token = fonnte_token_for(owner)
+    client_ip = req.client.host if req.client else "?"
+    if not _rate_limited(f"send:{client_ip}:{to}"):
+        raise HTTPException(429, "Too many messages, please slow down")
+    res = await fonnte_send(to, text, token)
+    append_chat(owner["id"], to, text, "out")
+    return {"status":"success","sent":res["status_code"]==200,"fonnte":res,"owner_id":owner["id"]}
+
+# ---------- CUSTOMERS ----------
+@app.get("/api/v1/customers/{phone}/messages")
+async def customer_messages(phone: str, req: Request, cu: dict = Depends(get_current_user)):
+    owner_id = scope_owner(cu, req.query_params.get("owner"))
+    if owner_id is None:
+        rows = db_query("SELECT * FROM chats WHERE phone=? ORDER BY timestamp ASC LIMIT 200", (phone,))
+    else:
+        rows = db_query("SELECT * FROM chats WHERE owner_id=? AND phone=? ORDER BY timestamp ASC LIMIT 200", (owner_id, phone))
+    msgs = [{"dir":(r.get("direction") or "in"),"t":_fmt_ts(r.get("timestamp")),"d":(r.get("text") or ""),"ts":r.get("timestamp")} for r in rows]
+    if owner_id is not None:
+        db_exec("UPDATE customers SET unread=0 WHERE owner_id=? AND phone=?", (owner_id, phone))
+    else:
+        db_exec("UPDATE customers SET unread=0 WHERE phone=?", (phone,))
+    return {"status":"success","data":msgs,"count":len(msgs)}
+
+@app.get("/api/v1/customers")
+async def list_customers(req: Request, cu: dict = Depends(get_current_user)):
+    owner_id = scope_owner(cu, req.query_params.get("owner"))
+    if owner_id is None:
+        rows = db_query("SELECT * FROM customers ORDER BY last_updated DESC LIMIT 500")
+    else:
+        rows = db_query("SELECT * FROM customers WHERE owner_id=? ORDER BY last_updated DESC LIMIT 500", (owner_id,))
+    return [get_customer_dict(r) for r in rows]
+
+# ---------- STATS ----------
 @app.get("/api/v1/stats")
-async def get_stats(_: None = Depends(auth_required)):
-    """Statistik dashboard — dihitung dari data real (in-memory + Supabase bila ada)."""
+async def get_stats(req: Request, cu: dict = Depends(get_current_user)):
+    owner_id = scope_owner(cu, req.query_params.get("owner"))
     now = datetime.datetime.now(datetime.timezone.utc)
     hot = warm = cold = 0
     chat_in = 0
     product_counts = {}
     activity = {}
-
-    if HAS_SUPABASE and sb():
-        try:
-            rows = sb().table("customers").select("category,product").limit(2000).execute().data or []
-            for r in rows:
-                cat = r.get("category") or "Cold Lead"
-                if "Hot" in cat: hot += 1
-                elif "Warm" in cat: warm += 1
-                else: cold += 1
-                prod = r.get("product") or "Umum"
-                product_counts[prod] = product_counts.get(prod, 0) + 1
-        except Exception as e:
-            log.warning("[Stats] customers error: %s", e)
-        try:
-            start = (now - datetime.timedelta(days=6)).date().isoformat()
-            rows = sb().table("chats").select("timestamp").gte("timestamp", start).limit(5000).execute().data or []
-            for r in rows:
-                ts = r.get("timestamp")
-                if ts:
-                    activity[ts[:10]] = activity.get(ts[:10], 0) + 1
-        except Exception as e:
-            log.warning("[Stats] chats error: %s", e)
+    if owner_id is None:
+        cust_rows = db_query("SELECT category,product FROM customers")
+        chat_rows = db_query("SELECT timestamp FROM chats WHERE direction='in'")
     else:
-        for p, c in CUSTOMERS.items():
-            cat = c.get("category") or "Cold Lead"
-            if "Hot" in cat: hot += 1
-            elif "Warm" in cat: warm += 1
-            else: cold += 1
-            for m in (c.get("msgs") or []):
-                if m.get("dir") == "in":
-                    chat_in += 1
-                    activity[now.date().isoformat()] = activity.get(now.date().isoformat(), 0) + 1
-            prod = c.get("product") or "Umum"
-            product_counts[prod] = product_counts.get(prod, 0) + 1
-
+        cust_rows = db_query("SELECT category,product FROM customers WHERE owner_id=?", (owner_id,))
+        chat_rows = db_query("SELECT timestamp FROM chats WHERE owner_id=? AND direction='in'", (owner_id,))
+    for r in cust_rows:
+        cat = r.get("category") or "Cold Lead"
+        if "Hot" in cat: hot += 1
+        elif "Warm" in cat: warm += 1
+        else: cold += 1
+        prod = r.get("product") or "Umum"
+        product_counts[prod] = product_counts.get(prod, 0) + 1
+    for r in chat_rows:
+        ts = r.get("timestamp")
+        if ts:
+            day = ts[:10]
+            activity[day] = activity.get(day, 0) + 1
+            chat_in += 1
     total = hot + warm + cold
     days = []
     for i in range(6, -1, -1):
-        d = (now - datetime.timedelta(days=i)).date()
-        label = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"][d.weekday()]
-        days.append({"label": label, "date": d.isoformat(), "value": activity.get(d.isoformat(), 0)})
-
+        ddate = (now - datetime.timedelta(days=i)).date()
+        label = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"][ddate.weekday()]
+        days.append({"label": label, "date": ddate.isoformat(), "value": activity.get(ddate.isoformat(), 0)})
     top_products = [{"name": k, "count": v, "sub": ""} for k, v in
                     sorted(product_counts.items(), key=lambda x: x[1], reverse=True)[:5]]
-
     return {"status": "success", "data": {
+        "owner_id": owner_id, "scope": "all" if owner_id is None else owner_id,
         "chat_count": chat_in,
         "hot": hot, "warm": warm, "cold": cold, "total": total,
         "distribution": {
@@ -1027,183 +1051,210 @@ async def get_stats(_: None = Depends(auth_required)):
         "generated_at": now.isoformat(),
     }}
 
-@app.post("/webhook/fonnte")
-async def webhook_fonnte(req: Request):
-    """Webhook Fonnte: device-status {device,stateid} ATAU pesan masuk {sender,message,name}."""
-    if not _webhook_ok(req):
-        raise HTTPException(401, "Invalid webhook token")
-    payload = await _read_json(req)
-    client_ip = req.client.host if req.client else "?"
-    if not _rate_limited(f"wh:{client_ip}:{payload.get('sender','')}", limit=120):
-        raise HTTPException(429, "Too many webhook requests")
-    if "stateid" in payload or ("device" in payload and "message" not in payload and "sender" not in payload):
-        log.info("[webhook-device-status] %s", json.dumps(payload, ensure_ascii=False)[:300])
-        return {"status":"received","type":"device_status"}
-    log.info("[webhook-raw] %s", json.dumps(payload, ensure_ascii=False)[:500])
-    cust, msg, analysis = process_incoming(payload)
-    if cust is None:
-        return {"status":"received","type":"skip"}
-    await manager.broadcast({"type":"chat_incoming","customer":cust,"message":msg,"analysis":analysis})
-    return {"status":"received","type":"message"}
+# ---------- PRODUCTS ----------
+@app.post("/api/v1/products")
+async def create_product(p: dict, cu: dict = Depends(get_current_user)):
+    pid = p.get("id") or str(uuid.uuid4())
+    data = {"id":pid,"owner_id":cu["id"],"name":p["name"],"category":p.get("category","Umum"),
+            "description":p.get("description",""),"price_range":p.get("price_range",""),
+            "duration":p.get("duration",""),"kb_text":p.get("kb_text",""),
+            "created_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    db_exec("INSERT OR REPLACE INTO products (id,owner_id,name,category,description,price_range,duration,kb_text,created_at) "
+            "VALUES (:id,:owner_id,:name,:category,:description,:price_range,:duration,:kb_text,:created_at)", data)
+    return {"status":"saved","product_id":pid}
 
-@app.post("/webhook/fonte")
-async def webhook_fonte(req: Request):
-    """Alias PRD (Fonte) - parse payload Fonnte yang sama."""
-    return await webhook_fonnte(req)
+@app.get("/api/v1/products")
+async def list_products(req: Request, category: str = None, cu: dict = Depends(get_current_user)):
+    owner_id = scope_owner(cu, req.query_params.get("owner"))
+    if owner_id is None:
+        rows = db_query("SELECT * FROM products ORDER BY created_at DESC")
+    else:
+        rows = db_query("SELECT * FROM products WHERE owner_id=? ORDER BY created_at DESC", (owner_id,))
+    if category:
+        rows = [r for r in rows if r.get("category") == category]
+    return [dict(r) for r in rows]
 
-def _webhook_ok(request: Request) -> bool:
-    """Verifikasi token webhook (header x-webhook-token ATAU query ?token=)."""
-    if not WEBHOOK_SECRET:
-        return True
-    header = request.headers.get("x-webhook-token", "")
-    query  = request.query_params.get("token", "")
+@app.get("/api/v1/products/{pid}")
+async def get_product(pid: str, cu: dict = Depends(get_current_user)):
+    rows = db_query("SELECT * FROM products WHERE id=?", (pid,))
+    if not rows:
+        return {"status":"error","id":pid}
+    return dict(rows[0])
+
+# ---------- UPLOAD / KNOWLEDGE ----------
+@app.post("/api/v1/upload")
+async def upload_product_file(file: UploadFile = File(...), cu: dict = Depends(get_current_user)):
+    result = await upload_to_storage(file)
+    return result
+
+def _extract_text(content_bytes, ext, file):
+    kb_text = ""
+    ext_lower = ext
     try:
-        if header and hmac.compare_digest(header, WEBHOOK_SECRET):
-            return True
-        if query and hmac.compare_digest(query, WEBHOOK_SECRET):
-            return True
-    except Exception:
-        return False
-    return False
+        if ext_lower == ".txt" or ext_lower in [".md"]:
+            kb_text = content_bytes.decode("utf-8", errors="replace")
+        elif ext_lower == ".pdf":
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(content_bytes))
+                kb_text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+            except ImportError:
+                import fitz
+                doc = fitz.open(stream=content_bytes, filetype="pdf")
+                kb_text = "\n\n".join(page.get_text() for page in doc)
+                doc.close()
+        elif ext_lower == ".docx":
+            from docx import Document
+            doc = Document(io.BytesIO(content_bytes))
+            kb_text = "\n\n".join(p.text or "" for p in doc.paragraphs if p.text.strip())
+        elif ext_lower in [".xlsx", ".xls"]:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content_bytes), read_only=True, data_only=True)
+            rows = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) for c in row if c is not None]
+                    if cells:
+                        rows.append("\t".join(cells))
+            kb_text = "\n".join(rows)
+            wb.close()
+        elif ext_lower in [".pptx"]:
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(content_bytes))
+            kb_text = "\n\n".join(shape.text or "" for slide in prs.slides for shape in slide.shapes if hasattr(shape,"text"))
+    except ImportError as ie:
+        log.warning("[KB Upload] Missing dep for %s: %s", ext, ie)
+    except Exception as e:
+        log.warning("[KB Upload] %s extraction error: %s", ext, e)
+        kb_text = f"(extraction error: {e})"
+    if not kb_text:
+        kb_text = f"File KB: {file.filename}. Buka dokumen untuk detail."
+    return kb_text
 
-@app.post("/api/v1/auth/login")
-async def auth_login(req: Request):
-    """Login -> JWT. {username, password} -> {token}. Butuh JWT_SECRET_KEY + ADMIN_PASSWORD."""
-    d = await _read_json(req)
-    u, p = d.get("username",""), d.get("password","")
-    if not (pyjwt and JWT_SECRET_KEY):
-        raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
-    if not ADMIN_PASSWORD:
-        raise HTTPException(403, "Login disabled: set ADMIN_PASSWORD")
-    if u != ADMIN_USER or p != ADMIN_PASSWORD:
-        raise HTTPException(401, "Invalid credentials")
-    token = create_token({"sub": u, "role": "admin"})
-    return {"status":"success","token":token,"expires_in":JWT_EXPIRATION}
+@app.post("/api/v1/knowledge/upload")
+async def upload_knowledge(file: UploadFile = File(...), category: str = Form("Umum"), name: str = Form(""),
+                           extract_text: bool = Form(True), cu: dict = Depends(get_current_user)):
+    if category not in PRODUCT_CATEGORIES:
+        category = "Umum"
+    content_bytes = await file.read()
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    kb_text = _extract_text(content_bytes, ext, file) if extract_text else f"File KB: {file.filename}"
+    # storage (optional)
+    try:
+        reuse_file = UploadFile(filename=file.filename, file=io.BytesIO(content_bytes), headers={})
+        upload_result = await upload_to_storage(reuse_file)
+    except Exception as e:
+        upload_result = {"status":"error","error":str(e)}
+    chunks = chunk_text(kb_text)
+    doc_id = str(uuid.uuid4())
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    db_exec("INSERT INTO knowledge_base (id,owner_id,category,name,filename,file_url,kb_text,chunks,chunk_count,uploaded_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (doc_id, cu["id"], category, name or file.filename or "", file.filename or "",
+             upload_result.get("public_url",""), kb_text[:50000], json.dumps(chunks), len(chunks), now))
+    return {"status":"saved","doc_id":doc_id,"kb_text_length":len(kb_text),"chunk_count":len(chunks),
+            "chunks_preview":chunks[:3],"file":upload_result}
 
-@app.post("/api/v1/assessment/analyze")
-async def assess(req: Request, _: None = Depends(auth_required)):
-    d = await _read_json(req)
-    analysis = groq.analyze(d.get("message",""), d.get("chat_history",""))
-    _append_log({"type":"assessment","input":d,"output":analysis,
-                 "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
-    return {"status":"success","data":analysis}
+@app.get("/api/v1/knowledge/search")
+async def knowledge_search(req: Request, q: str = "", cat: str = None, limit: int = 5, cu: dict = Depends(get_current_user)):
+    if not q.strip():
+        return {"status":"error","error":"q wajib"}
+    category = None
+    if cat and cat.strip() and cat.strip() in PRODUCT_CATEGORIES:
+        category = cat.strip()
+    owner_filter = scope_owner(cu, req.query_params.get("owner"))
+    hits = search_kb_chunks(q, category=category, limit=max(1, min(limit, 20)), cu=cu, owner_filter=owner_filter)
+    return {"status":"success","data":{"query":q,"category":category,"count":len(hits),"hits":hits}}
 
-@app.post("/api/v1/reply/generate")
-async def reply_generate(req: Request, _: None = Depends(auth_required)):
-    d = await _read_json(req)
-    kb = d.get("knowledge_chunks","")
-    product = d.get("context",{}).get("product","Umum")
-    message = d.get("message","")
-    hits = []
+def _kb_doc_dict(p: dict) -> dict:
+    ch = p.get("chunks") or []
+    if isinstance(ch, str):
+        try: ch = json.loads(ch)
+        except Exception: ch = []
+    return {"id":p.get("id"),"owner_id":p.get("owner_id"),"name":p.get("name"),"category":p.get("category"),
+           "filename":p.get("filename",""),"url":p.get("file_url"),"uploaded_at":p.get("uploaded_at"),
+           "chunk_count":p.get("chunk_count") or len(ch),"preview":(p.get("kb_text") or "")[:400],
+           "kb_text":p.get("kb_text") or ""}
 
-    # Auto-retrieve relevant chunks (Option A: keyword scoring)
-    if not kb:
-        cat_match = None
-        for cat in PRODUCT_CATEGORIES:
-            if cat.lower() in (product or "").lower() or cat.lower() in (message or "").lower():
-                cat_match = cat
-                break
-        hits = search_kb_chunks(message or product, category=cat_match, limit=5)
-        # if category filter too strict, broaden
-        if not hits and cat_match:
-            hits = search_kb_chunks(message or product, category=None, limit=5)
-        kb = format_kb_context(hits)
-        log.warning("[reply_generate] KB chunks: cat=%s hits=%d len=%d", cat_match, len(hits), len(kb))
+@app.get("/api/v1/knowledge")
+async def list_knowledge(req: Request, category: str = None, cu: dict = Depends(get_current_user)):
+    if category and category not in PRODUCT_CATEGORIES:
+        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
+    rows = _kb_rows_for_viewer(cu, scope_owner(cu, req.query_params.get("owner")))
+    if category:
+        rows = [r for r in rows if r.get("category") == category]
+    docs = [_kb_doc_dict(r) for r in rows]
+    counts = {c:0 for c in PRODUCT_CATEGORIES}
+    for d in docs:
+        counts[d.get("category")] = counts.get(d.get("category"),0) + 1
+    total_chunks = sum(d.get("chunk_count") or 0 for d in docs)
+    return {"status":"success","data":{"category":category,"count":len(docs),"docs":docs,
+            "category_counts":counts,"total_chunks":total_chunks}}
 
-    log.warning("[reply_generate] message: %s", message[:100])
-    log.warning("[reply_generate] context: %s", d.get("context",{}))
-    log.warning("[reply_generate] kb length: %d", len(kb))
-    reply = groq.generate_reply(message, d.get("context",{}), kb)
-    if isinstance(reply, dict) and "suggested_reply" in reply:
-        reply["kb_hits"] = [{"name":h.get("name"),"category":h.get("category"),"score":h.get("score"),"chunk_idx":h.get("chunk_idx")} for h in hits]
-        extra = [{"type":"kb","reference":f"{h.get('category','')}/{h.get('name','')}#{h.get('chunk_idx')}"} for h in hits[:3]]
-        reply["sources"] = (reply.get("sources") or []) + extra
-        reply["confidence"] = reply.get("confidence_score", 0)
-    else:
-        reply = {"suggested_reply":"(fallback error)",
-                 "confidence_score": reply.get("confidence_score",20) if isinstance(reply,dict) else 20,
-                 "sources":[],
-                 "fallback": str(reply.get("fallback","Maaf kak, sale kami akan hubungi segeri")),
-                 "kb_hits": []}
-    _append_log({"customer_id":d.get("customer_id"),"reply":reply,
-                 "ts":datetime.datetime.now(datetime.timezone.utc).isoformat()})
-    return {"status":"success","data":reply}
+@app.get("/api/v1/knowledge/doc/{doc_id}")
+async def get_knowledge_doc(doc_id: str, cu: dict = Depends(get_current_user)):
+    rows = db_query("SELECT * FROM knowledge_base WHERE id=?", (doc_id,))
+    if not rows:
+        return {"status":"error","error":"doc not found"}
+    r = rows[0]
+    if cu["role"] != "admin" and r["owner_id"] not in (cu["id"], "*"):
+        raise HTTPException(403, "Tidak punya akses")
+    return {"status":"success","data":_kb_doc_dict(r)}
 
-@app.post("/api/v1/messages/send")
-async def send_message(req: Request, _: None = Depends(auth_required)):
-    """Kirim balasan WA via Fonnte. {to, text}"""
-    d = await _read_json(req)
-    to, text = d.get("to",""), d.get("text","")
-    if not to or not text:
-        raise HTTPException(400, "to & text wajib")
-    client_ip = req.client.host if req.client else "?"
-    if not _rate_limited(f"send:{client_ip}:{to}"):
-        raise HTTPException(429, "Too many messages, please slow down")
-    res = await fonnte_send(to, text)
-    # Persist pesan keluar (in-memory + Supabase)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if to in CUSTOMERS:
-        cust = CUSTOMERS[to]
-        cust.setdefault("msgs", []).append({"dir":"out","t":now.strftime("%H:%M"),"d":text})
-        cust["last"] = text[:60]
-        cust["unread"] = 0
-    save_chat_db(to, text, "out")
-    if HAS_SUPABASE and sb():
-        try:
-            sb().table("customers").update({
-                "last_message": text[:200],
-                "last_updated": now.isoformat()
-            }).eq("phone", to).execute()
-        except Exception as e:
-            log.warning("[Send] customer update error: %s", e)
-    return {"status":"success","sent":res["status_code"]==200,"fonnte":res}
+@app.put("/api/v1/knowledge/{doc_id}")
+async def update_knowledge(doc_id: str, p: dict, cu: dict = Depends(get_current_user)):
+    rows = db_query("SELECT * FROM knowledge_base WHERE id=?", (doc_id,))
+    if not rows:
+        return {"status":"error","error":"doc not found"}
+    r = rows[0]
+    if cu["role"] != "admin" and r["owner_id"] not in (cu["id"], "*"):
+        raise HTTPException(403, "Tidak punya akses")
+    name = str(p.get("name","")).strip()
+    category = str(p.get("category","")).strip()
+    kb_text = str(p.get("kb_text","") or "").strip()
+    if category and category not in PRODUCT_CATEGORIES:
+        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
+    if not name and not kb_text:
+        return {"status":"error","error":"name atau kb_text wajib"}
+    chunks = chunk_text(kb_text) if kb_text else None
+    sets, params = [], []
+    if name: sets.append("name=?"); params.append(name)
+    if category: sets.append("category=?"); params.append(category)
+    if kb_text:
+        sets.append("kb_text=?"); params.append(kb_text[:50000])
+        sets.append("chunks=?"); params.append(json.dumps(chunks))
+        sets.append("chunk_count=?"); params.append(len(chunks))
+    params.append(doc_id)
+    db_exec(f"UPDATE knowledge_base SET {','.join(sets)} WHERE id=?", tuple(params))
+    return {"status":"saved","id":doc_id}
 
-@app.get("/api/v1/customers/{phone}/messages")
-async def customer_messages(phone: str, _: None = Depends(auth_required)):
-    """Riwayat chat satu customer (Supabase chats, fallback in-memory)."""
-    msgs = []
-    if HAS_SUPABASE and sb():
-        try:
-            rows = sb().table("chats").select("text,direction,timestamp").eq("phone", phone) \
-                .order("timestamp", desc=True).limit(200).execute().data or []
-            rows = list(reversed(rows))
-            msgs = [{"dir": (r.get("direction") or "in"), "t": _fmt_ts(r.get("timestamp")),
-                     "d": (r.get("text") or ""), "ts": r.get("timestamp")} for r in rows]
-        except Exception as e:
-            log.warning("[Messages] Supabase error: %s", e)
-    else:
-        msgs = (CUSTOMERS.get(phone) or {}).get("msgs") or []
-    return {"status":"success","data":msgs, "count": len(msgs)}
+@app.delete("/api/v1/knowledge/{doc_id}")
+async def delete_knowledge(doc_id: str, cu: dict = Depends(get_current_user)):
+    rows = db_query("SELECT * FROM knowledge_base WHERE id=?", (doc_id,))
+    if not rows:
+        return {"status":"error","error":"doc not found"}
+    r = rows[0]
+    if cu["role"] != "admin" and r["owner_id"] not in (cu["id"], "*"):
+        raise HTTPException(403, "Tidak punya akses")
+    db_exec("DELETE FROM knowledge_base WHERE id=?", (doc_id,))
+    return {"status":"deleted","id":doc_id}
 
-@app.get("/api/v1/customers")
-async def list_customers(_: None = Depends(auth_required)):
-    """List customer: gabungan in-memory (aktif) + Supabase (persisted)."""
-    out = [{"phone": p, **c} for p, c in CUSTOMERS.items()]
-    seen = set(CUSTOMERS.keys())
-    if HAS_SUPABASE and sb():
-        try:
-            result = sb().table("customers").select("*").order("last_updated", desc=True).limit(200).execute()
-            for row in (result.data or []):
-                phone = row.get("phone")
-                if not phone or phone in seen:
-                    continue
-                seen.add(phone)
-                out.append({
-                    "phone": phone,
-                    "name": row.get("name") or phone,
-                    "msgs": [],
-                    "unread": 0,
-                    "last": row.get("last_message") or "",
-                    "score": _to_int(row.get("last_score"), 0),
-                    "category": row.get("category") or "Cold Lead",
-                    "badge": row.get("badge") or "🔴",
-                    "created": row.get("last_updated") or "",
-                    "stage": "Awareness",
-                    "product": row.get("product") or "Umum",
-                })
-        except Exception as e:
-            log.warning("[Customers] Supabase error: %s", e)
-    return out
+@app.get("/api/v1/knowledge/{category}")
+async def get_knowledge(category: str, req: Request, cu: dict = Depends(get_current_user)):
+    if category not in PRODUCT_CATEGORIES:
+        return {"status":"error","error":f"Invalid category. Valid: {PRODUCT_CATEGORIES}"}
+    rows = _kb_rows_for_viewer(cu, scope_owner(cu, req.query_params.get("owner")))
+    rows = [r for r in rows if r.get("category") == category]
+    docs = []
+    for p in rows:
+        ch = p.get("chunks") or []
+        if isinstance(ch, str):
+            try: ch = json.loads(ch)
+            except Exception: ch = []
+        docs.append({"id":p.get("id"),"name":p.get("name"),"category":p.get("category"),
+                    "url":p.get("file_url"),"uploaded_at":p.get("uploaded_at"),
+                    "chunk_count":p.get("chunk_count") or len(ch),"preview":(p.get("kb_text") or "")[:400]})
+    return {"category":category,"docs":docs,"count":len(docs)}
 
 if __name__ == "__main__":
     import uvicorn

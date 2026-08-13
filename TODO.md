@@ -75,8 +75,13 @@
 
 ### Database & Persistensi
 - [x] `/api/v1/customers` kini baca gabungan in-memory + Supabase (customer lama muncul lagi setelah restart) — v0.4
-- [x] Auth JWT + API token di semua `/api/v1/*` (login `/api/v1/auth/login`, `ADMIN_USER`/`ADMIN_PASSWORD`/`API_TOKEN`) — PRD 9.2 (sebagian; RBAC per-role belum)
-- [ ] PostgreSQL + PgVector (ganti mock `CUSTOMERS`/`LEAD_SCORES`/`AI_LOGS`)
+  - [x] Auth JWT + API token di semua `/api/v1/*` (login `/api/v1/auth/login`, `ADMIN_USER`/`ADMIN_PASSWORD`/`API_TOKEN`) — PRD 9.2
+  - [x] **Multi-User (v0.5):** store SQLite (`data/app.db`) — tabel `users`/`customers`/`chats`/`knowledge_base`/`products`, semua data di-scope per `owner_id`
+  - [x] **Login page** full-screen + profil (`/api/v1/me`, PUT ganti password/token Fonnte/Groq)
+  - [x] **RBAC Admin (super-admin) vs User:** admin lihat & kelola SEMUA data user (`?owner=all` / `?owner=<uid>`) + CRUD user (`/api/v1/admin/users`); user hanya data sendiri
+  - [x] **Per-user WhatsApp:** tiap user punya Fonnte token/nomor sendiri; webhook `?uid=<id>` memetakan pesan masuk ke owner; pengiriman pakai token owner
+  - [x] **Frontend beda Admin/User:** nav Users + scope selector hanya untuk admin; user punya halaman Profil untuk set token sendiri; login menutupi app sampai sesi valid
+  - [ ] PostgreSQL + PgVector (ganti mock `CUSTOMERS`/`LEAD_SCORES`/`AI_LOGS`)
 - [ ] Simpan messages, lead_scores, ai_reply_logs (schema PRD 6.2)
 - [ ] RBAC penuh (Admin/Sales Manager/Sales) — PRD 9.2
 
