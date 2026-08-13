@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sales AI Assistant — ICC Holding</title>
+<link rel="icon" href="https://training-jogja.com/wp-content/uploads/2026/08/indonesian-certification-center-removebg-preview.png">
 <style>
 /* ============ TOKENS ============ */
 :root{
@@ -73,6 +74,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary); box-shadow:
 .pill .dot.pulse{animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .pill .dot.orange{background:var(--amber)}
+.banner-warn{display:none; align-items:center; gap:8px; padding:9px 24px; font-size:12.5px; font-weight:600; color:#fff; background:var(--red); position:sticky; top:56px; z-index:19}
 .top-date{font-size:12px; color:var(--muted); white-space:nowrap}
 .icon-btn{display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--muted); transition:all .15s}
 .icon-btn:hover{color:var(--ink); border-color:var(--faint)}
@@ -338,7 +340,7 @@ body.logged-out .app{display:none}
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-logo">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+        <img src="https://training-jogja.com/wp-content/uploads/2026/08/indonesian-certification-center-removebg-preview.png" alt="ICC" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">
       </div>
       <div>
         <div class="brand-name">Sales AI Assistant</div>
@@ -400,6 +402,8 @@ body.logged-out .app{display:none}
         <option value="all">Semua user</option>
       </select>
     </div>
+
+    <div class="banner-warn" id="fonnteBanner">⚠ Fonnte terputus — pesan WA tidak dapat dikirim. Periksa Token Fonnte di halaman Profil.</div>
 
     <div class="content">
       <!-- ============ PAGE: DASHBOARD ============ -->
@@ -564,7 +568,7 @@ body.logged-out .app{display:none}
         <div class="card" style="max-width:660px">
           <div class="card-head"><h3>Profil &amp; Pengaturan Akun</h3></div>
           <div class="card-body">
-            <div class="field"><label>Username</label><input id="pfUser" disabled></div>
+            <div class="field"><label>Username</label><input id="pfUser"></div>
             <div class="field"><label>Nama Tampilan</label><input id="pfName" placeholder="Nama lengkap / panggilan"></div>
             <div class="field"><label>Nomor WhatsApp (Fonnte)</label><input id="pfFon" placeholder="62812..."></div>
             <div class="field"><label>Token Fonnte</label><input id="pfTok" type="password" placeholder="Token device Fonnte Anda"></div>
@@ -630,9 +634,9 @@ body.logged-out .app{display:none}
 <!-- ============ LOGIN SCREEN ============ -->
 <div class="login-screen" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
   <div class="login-card">
-    <div class="brand-logo">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
-    </div>
+      <div class="brand-logo">
+        <img src="https://training-jogja.com/wp-content/uploads/2026/08/indonesian-certification-center-removebg-preview.png" alt="ICC" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">
+      </div>
     <h2 id="loginTitle">Masuk</h2>
     <div class="sub">Sales AI Assistant — ICC Holding</div>
     <div class="field"><label for="loginUser">Username</label><input id="loginUser" type="text" autocomplete="username" placeholder="admin"></div>
@@ -1203,6 +1207,15 @@ function ownerQS(){
   }
   return '';
 }
+function checkFonnteStatus(){
+  if(!localStorage.getItem('apiToken')) return;
+  apiFetch(apiBase()+'api/v1/fonnte/status').then(r=>r.json()).then(res=>{
+    const ok = !!(res && res.connected);
+    setPill('Fonte', ok);
+    const b = document.getElementById('fonnteBanner');
+    if(b) b.style.display = ok ? 'none' : 'flex';
+  }).catch(()=>{});
+}
 function setupSession(){
   const t = localStorage.getItem('apiToken');
   if(!t){ openLogin('Masuk untuk mengakses dashboard'); return; }
@@ -1216,6 +1229,9 @@ function setupSession(){
     closeLogin();
     loadHealth();
     refreshAll();
+    checkFonnteStatus();
+    if(window.fonnteTimer) clearInterval(window.fonnteTimer);
+    window.fonnteTimer = setInterval(checkFonnteStatus, 30000);
   }).catch(e=>{
     localStorage.removeItem('apiToken');
     CURRENT_USER = null;
@@ -1253,8 +1269,10 @@ function doLogin(){
   .finally(()=>{ btn.disabled = false; btn.textContent = 'Masuk'; });
 }
 function doLogout(){
+  if(window.fonnteTimer) clearInterval(window.fonnteTimer);
   localStorage.removeItem('apiToken');
   CURRENT_USER = null; ADMIN_SCOPE = 'all';
+  const b = document.getElementById('fonnteBanner'); if(b) b.style.display='none';
   toast('Logout — sesi berakhir');
   openLogin('Sesi berakhir. Masuk kembali untuk lanjut.');
 }
@@ -1376,6 +1394,7 @@ function loadProfile(){
 }
 function saveProfile(){
   const body = {
+    username: document.getElementById('pfUser').value.trim(),
     display_name: document.getElementById('pfName').value.trim(),
     fonnte_from_number: document.getElementById('pfFon').value.trim(),
     fonnte_token: document.getElementById('pfTok').value

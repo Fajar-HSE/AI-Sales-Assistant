@@ -219,7 +219,7 @@ def create_user(uname, pw, role="user", display_name="", fonnte_token="", fonnte
     return get_user_by_id(uid)
 
 def update_user(uid, **fields):
-    allowed = {"role","display_name","fonnte_token","fonnte_from_number","groq_api_key","is_active"}
+    allowed = {"role","display_name","username","fonnte_token","fonnte_from_number","groq_api_key","is_active"}
     sets, params = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -781,7 +781,6 @@ async def auth_login(req: Request):
         raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
     d = await _read_json(req)
     u, p = (d.get("username") or "").strip(), (d.get("password") or "").strip()
-    logging.info("LOGIN_ATTEMPT username=%r pwlen=%d", u, len(p))
     user = get_user_by_username(u)
     if not user or not verify_password(p, _pw_hash_for(u)):
         raise HTTPException(401, "Invalid credentials")
@@ -804,6 +803,11 @@ async def update_me(req: Request, cu: dict = Depends(get_current_user)):
     d = await _read_json(req)
     fields = {}
     if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
+    if "username" in d and (d["username"] or "").strip():
+        nu = str(d["username"]).strip()
+        if nu != cu["username"] and get_user_by_username(nu):
+            raise HTTPException(409, "Username sudah dipakai")
+        fields["username"] = nu
     if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
     if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
     if d.get("new_password"):
@@ -813,6 +817,31 @@ async def update_me(req: Request, cu: dict = Depends(get_current_user)):
     if fields:
         update_user(cu["id"], **fields)
     return {"status":"success","data":public_user(get_user_by_id(cu["id"]))}
+
+@app.get("/api/v1/fonnte/status")
+async def fonnte_status(cu: dict = Depends(get_current_user)):
+    """Cek koneksi gateway WA (Fonnte) milik user yang login.
+    Deteksi proaktif: token invalid/revoked (401) atau Fonnte unreachable -> disconnected.
+    Catatan: device token hanya bisa divalidasi sampai level 'token diterima API' (reachability),
+    bukan status online/offline per-device (Fonnte tidak expose itu untuk device token)."""
+    tk = fonnte_token_for(cu)
+    if not tk:
+        return {"status":"success","connected":False,"detail":"no_token"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post("https://api.fonnte.com/get-devices", headers={"Authorization":tk})
+        if r.status_code != 200:
+            return {"status":"success","connected":False,"detail":"http_"+str(r.status_code)}
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        reason = str(j.get("reason","")).lower()
+        if j.get("status") is False and ("token invalid" in reason or "unauthoriz" in reason):
+            return {"status":"success","connected":False,"detail":"token_invalid"}
+        return {"status":"success","connected":True,"detail":str(r.status_code)}
+    except Exception:
+        return {"status":"success","connected":False,"detail":"network_error"}
 
 # ---------- ADMIN: USER MANAGEMENT ----------
 @app.get("/api/v1/admin/users")
@@ -847,6 +876,12 @@ async def admin_update_user(uid: str, req: Request, cu: dict = Depends(get_curre
     fields = {}
     if "role" in d: fields["role"] = "admin" if d["role"] == "admin" else "user"
     if "display_name" in d: fields["display_name"] = str(d["display_name"])[:80]
+    if "username" in d and (d["username"] or "").strip():
+        nu = str(d["username"]).strip()
+        cur = get_user_by_id(uid) or {}
+        if nu != cur.get("username") and get_user_by_username(nu):
+            raise HTTPException(409, "Username sudah dipakai")
+        fields["username"] = nu
     if "fonnte_token" in d: fields["fonnte_token"] = str(d["fonnte_token"])
     if "fonnte_from_number" in d: fields["fonnte_from_number"] = str(d["fonnte_from_number"])
     if "is_active" in d: fields["is_active"] = 1 if d["is_active"] else 0
