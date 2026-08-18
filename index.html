@@ -1213,8 +1213,10 @@ function apiFetch(url, opts){
   const t = localStorage.getItem('apiToken');
   if(t) opts.headers['Authorization'] = 'Bearer ' + t;
   return fetch(url, opts).then(res=>{
-    if(res.status === 401){
+    // 401 saat sesi sudah aktif => token dicabut/diubah server. Tangani sekali.
+    if(res.status === 401 && CURRENT_USER){
       localStorage.removeItem('apiToken');
+      CURRENT_USER = null;
       openLogin('Sesi tidak valid / kedaluwarsa. Silakan masuk kembali.');
     }
     return res;
@@ -1352,7 +1354,7 @@ function doLogin(){
     if(d && d.token){
       localStorage.setItem('apiToken', d.token);
       CURRENT_USER = (d.user && {id:d.user.id, username:d.user.username, role:d.user.role, display_name:d.user.display_name}) || null;
-      setupSession();
+      enterApp(CURRENT_USER);
       toast('Login berhasil');
     } else if(http === 429){
       showLoginErr('Terlalu banyak percobaan login. Tunggu beberapa saat dan coba lagi.');
