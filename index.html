@@ -314,15 +314,27 @@ body.logged-out .app{display:none}
 .login-screen{position:fixed; inset:0; z-index:200; display:none; align-items:center; justify-content:center;
   background:radial-gradient(1200px 600px at 50% -10%, rgba(26,86,219,.18), transparent), var(--bg)}
 .login-screen.open{display:flex}
-.login-card{width:min(380px,92vw); background:var(--surface); border:1px solid var(--border); border-radius:16px;
-  box-shadow:var(--shadow); padding:28px 26px; text-align:center}
-.login-card .brand-logo{width:48px; height:48px; border-radius:13px; margin:0 auto 14px; font-size:20px}
-.login-card h2{font-size:18px; color:var(--ink); margin-bottom:4px}
-.login-card .sub{font-size:12.5px; color:var(--muted); margin-bottom:18px}
-.login-card .field{text-align:left; margin-bottom:12px}
-.login-card .field label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px}
-.login-card .login-err{color:var(--red); font-size:12px; margin-top:4px; text-align:left}
-.login-card .btn{width:100%; justify-content:center; margin-top:6px}
+.login-card{width:min(400px,92vw); background:var(--surface); border:1px solid var(--border); border-radius:18px;
+  box-shadow:var(--shadow); padding:32px 30px 24px; text-align:center}
+.login-card .brand-logo{width:52px; height:52px; border-radius:14px; margin:0 auto 16px; font-size:20px}
+.login-card h2{font-size:20px; color:var(--ink); margin-bottom:4px; font-weight:800}
+.login-card .sub{font-size:12.5px; color:var(--muted); margin-bottom:22px}
+.login-card .field{text-align:left; margin-bottom:2px}
+.login-card .field label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px}
+.login-card .input-wrap{position:relative; display:flex; align-items:center}
+.login-card .input-wrap .in-ic{position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--faint); pointer-events:none; display:inline-flex; z-index:1}
+.login-card .input-wrap input{width:100%; padding:10px 38px 10px 34px; font-size:13.5px}
+.field-err{display:none; color:var(--red); font-size:11.5px; font-weight:600; text-align:left; margin:3px 0 10px}
+.field-err.show{display:block}
+.field.invalid input{border-color:var(--red)}
+.field.invalid input:focus{box-shadow:0 0 0 3px var(--red-soft)}
+.pw-toggle{position:absolute; right:5px; top:50%; transform:translateY(-50%); width:30px; height:30px; border:none; background:none; color:var(--faint); display:inline-flex; align-items:center; justify-content:center; border-radius:6px}
+.pw-toggle:hover{color:var(--ink)}
+.pw-toggle:focus-visible{outline:2px solid var(--primary); outline-offset:1px}
+.login-card .btn{width:100%; justify-content:center; margin-top:12px; height:42px; gap:8px; border-radius:var(--radius)}
+.login-card .btn .spinner{width:16px; height:16px; border-width:2px}
+.login-card .login-err{color:var(--red); font-size:12px; margin-top:8px; text-align:left; background:var(--red-soft); border:1px solid rgba(239,68,68,.25); border-radius:var(--radius-sm); padding:8px 10px; line-height:1.4}
+.login-foot{margin-top:20px; font-size:10.5px; color:var(--faint); letter-spacing:.02em}
 .user-modal .field{margin-bottom:11px}
 .user-modal .field label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px}
 .chip{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; border-radius:99px; padding:2px 9px}
@@ -634,15 +646,39 @@ body.logged-out .app{display:none}
 <!-- ============ LOGIN SCREEN ============ -->
 <div class="login-screen" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
   <div class="login-card">
-      <div class="brand-logo">
-        <img src="https://training-jogja.com/wp-content/uploads/2026/08/indonesian-certification-center-removebg-preview.png" alt="ICC" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">
-      </div>
+    <div class="brand-logo">
+      <img src="https://training-jogja.com/wp-content/uploads/2026/08/indonesian-certification-center-removebg-preview.png" alt="ICC" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">
+    </div>
     <h2 id="loginTitle">Masuk</h2>
     <div class="sub">Sales AI Assistant — ICC Holding</div>
-    <div class="field"><label for="loginUser">Username</label><input id="loginUser" type="text" autocomplete="username" placeholder="admin"></div>
-    <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" placeholder="••••••••"></div>
-    <div class="login-err" id="loginErr" style="display:none"></div>
-    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Masuk</button>
+    <form id="loginForm" autocomplete="on" onsubmit="return doLogin()" novalidate>
+      <div class="field" id="loginUserField">
+        <label for="loginUser">Username</label>
+        <div class="input-wrap">
+          <span class="in-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg></span>
+          <input id="loginUser" type="text" autocomplete="username" placeholder="masukkan username" oninput="clearFieldError('loginUser')">
+        </div>
+        <div class="field-err" id="loginUserErr"></div>
+      </div>
+      <div class="field" id="loginPassField">
+        <label for="loginPass">Password</label>
+        <div class="input-wrap">
+          <span class="in-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+          <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••" oninput="clearFieldError('loginPass')">
+          <button type="button" class="pw-toggle" id="pwToggle" onclick="togglePassword()" tabindex="-1" aria-label="Tampilkan / sembunyikan password" title="Tampilkan password">
+            <svg id="pwEye" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg id="pwEyeOff" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"/></svg>
+          </button>
+        </div>
+        <div class="field-err" id="loginPassErr"></div>
+      </div>
+      <div class="login-err" id="loginErr" style="display:none"></div>
+      <button class="btn btn-primary" id="loginBtn" type="submit">
+        <span id="loginBtnLabel">Masuk</span>
+        <span class="spinner" id="loginBtnSpinner" style="display:none"></span>
+      </button>
+    </form>
+    <div class="login-foot">© <span id="loginYear"></span> ICC Holding</div>
   </div>
 </div>
 
@@ -1186,11 +1222,51 @@ function apiFetch(url, opts){
 }
 /* ============ LOGIN ============ */
 let loginOpen = false;
+let loginSubmitting = false;
+function showLoginErr(msg){
+  const err = document.getElementById('loginErr');
+  if(err){ err.textContent = msg || ''; err.style.display = msg ? 'block' : 'none'; }
+}
+function hideLoginErr(){ showLoginErr(''); }
+function setFieldError(id, msg){
+  const err = document.getElementById(id+'Err');
+  const field = document.getElementById(id+'Field');
+  if(err){ err.textContent = msg; err.classList.add('show'); }
+  if(field) field.classList.add('invalid');
+  hideLoginErr();
+}
+function clearFieldError(id){
+  const err = document.getElementById(id+'Err');
+  const field = document.getElementById(id+'Field');
+  if(err){ err.textContent = ''; err.classList.remove('show'); }
+  if(field) field.classList.remove('invalid');
+  hideLoginErr();
+}
+function clearFormErrors(){
+  ['loginUser','loginPass'].forEach(id=>{ clearFieldError(id); });
+}
+function togglePassword(){
+  const inp = document.getElementById('loginPass');
+  if(!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  const eye = document.getElementById('pwEye'), eyeOff = document.getElementById('pwEyeOff');
+  if(eye) eye.style.display = show ? 'none' : '';
+  if(eyeOff) eyeOff.style.display = show ? '' : 'none';
+  inp.focus();
+}
+function setLoginBusy(busy){
+  const btn = document.getElementById('loginBtn');
+  const lbl = document.getElementById('loginBtnLabel');
+  const sp = document.getElementById('loginBtnSpinner');
+  if(btn) btn.disabled = busy;
+  if(sp) sp.style.display = busy ? '' : 'none';
+  if(lbl) lbl.textContent = busy ? 'Memeriksa...' : 'Masuk';
+}
 function openLogin(msg){
   loginOpen = true;
-  const err = document.getElementById('loginErr');
-  if(msg){ err.style.display = 'block'; err.textContent = msg; }
-  else err.style.display = 'none';
+  clearFormErrors();
+  if(msg) showLoginErr(msg);
   document.body.classList.add('logged-out');
   document.getElementById('loginModal').classList.add('open');
   setTimeout(()=>{ try{ document.getElementById('loginUser').focus(); }catch(e){} }, 50);
@@ -1208,7 +1284,7 @@ function ownerQS(){
   return '';
 }
 function checkFonnteStatus(){
-  if(!localStorage.getItem('apiToken')) return;
+  if(!CURRENT_USER) return;
   apiFetch(apiBase()+'api/v1/fonnte/status').then(r=>r.json()).then(res=>{
     const ok = !!(res && res.connected);
     setPill('Fonte', ok);
@@ -1216,22 +1292,25 @@ function checkFonnteStatus(){
     if(b) b.style.display = ok ? 'none' : 'flex';
   }).catch(()=>{});
 }
+function enterApp(me){
+  CURRENT_USER = me;
+  ADMIN_SCOPE = 'all';
+  applyRoleUI();
+  if(CURRENT_USER.role==='admin'){ refreshUsers(); }
+  document.body.classList.remove('logged-out');
+  closeLogin();
+  loadHealth();
+  refreshAll();
+  checkFonnteStatus();
+  if(window.fonnteTimer) clearInterval(window.fonnteTimer);
+  window.fonnteTimer = setInterval(checkFonnteStatus, 30000);
+}
 function setupSession(){
   const t = localStorage.getItem('apiToken');
   if(!t){ openLogin('Masuk untuk mengakses dashboard'); return; }
   apiFetch(apiBase()+'api/v1/me').then(r=>r.json()).then(me=>{
-    if(!me || me.status!=='success' || !me.data) throw new Error('invalid session');
-    CURRENT_USER = me.data;
-    ADMIN_SCOPE = 'all';
-    applyRoleUI();
-    if(CURRENT_USER.role==='admin'){ refreshUsers(); }
-    document.body.classList.remove('logged-out');
-    closeLogin();
-    loadHealth();
-    refreshAll();
-    checkFonnteStatus();
-    if(window.fonnteTimer) clearInterval(window.fonnteTimer);
-    window.fonnteTimer = setInterval(checkFonnteStatus, 30000);
+    if(!me || me.status!=='success' || me.data==null) throw new Error('invalid session');
+    enterApp(me.data);
   }).catch(e=>{
     localStorage.removeItem('apiToken');
     CURRENT_USER = null;
@@ -1240,44 +1319,83 @@ function setupSession(){
 }
 function applyRoleUI(){
   const isAdmin = !!(CURRENT_USER && CURRENT_USER.role==='admin');
-  document.querySelectorAll('.admin-only').forEach(el=> el.style.display = isAdmin ? '' : 'none');
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    const d = isAdmin ? (el.classList && el.classList.contains('nav-item') ? 'flex' : 'block') : 'none';
+    el.style.display = d;
+  });
   document.getElementById('uiName').textContent = (CURRENT_USER && (CURRENT_USER.display_name||CURRENT_USER.username)) || '—';
   document.getElementById('uiRole').textContent = isAdmin ? 'Admin' : 'User';
   const nm = (CURRENT_USER && (CURRENT_USER.display_name||CURRENT_USER.username)||'?');
   document.getElementById('uiAvatar').textContent = (nm[0]||'?').toUpperCase();
-  document.getElementById('scopeSel').style.display = isAdmin ? '' : 'none';
+  const sel = document.getElementById('scopeSel');
+  if(sel) sel.style.display = isAdmin ? 'block' : 'none';
 }
 function doLogin(){
-  const u = document.getElementById('loginUser').value.trim();
-  const p = document.getElementById('loginPass').value;
-  const btn = document.getElementById('loginBtn');
-  btn.disabled = true; btn.textContent = 'Memeriksa...';
+  if(loginSubmitting) return false;
+  const uEl = document.getElementById('loginUser');
+  const pEl = document.getElementById('loginPass');
+  clearFormErrors();
+  const u = (uEl.value||'').trim();
+  const p = pEl.value || '';
+  if(!u){ setFieldError('loginUser', 'Username wajib diisi'); }
+  if(!p){ setFieldError('loginPass', 'Password wajib diisi'); }
+  if(!u || !p){ (u ? pEl : uEl).focus(); return false; }
+  loginSubmitting = true;
+  setLoginBusy(true);
   fetch(apiBase()+'api/v1/auth/login', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({username:u, password:p})
-  }).then(r=>r.json()).then(res=>{
-    if(res && res.token){
-      localStorage.setItem('apiToken', res.token);
-      CURRENT_USER = (res.user && {id:res.user.id, username:res.user.username, role:res.user.role, display_name:res.user.display_name}) || null;
+  })
+  .then(r=>r.json().then(d=>Promise.resolve({http:r.status, d})).catch(()=>({http:r.status, d:{}})))
+  .then(({http, d})=>{
+    if(d && d.token){
+      localStorage.setItem('apiToken', d.token);
+      CURRENT_USER = (d.user && {id:d.user.id, username:d.user.username, role:d.user.role, display_name:d.user.display_name}) || null;
       setupSession();
       toast('Login berhasil');
+    } else if(http === 429){
+      showLoginErr('Terlalu banyak percobaan login. Tunggu beberapa saat dan coba lagi.');
+    } else if(http === 403){
+      showLoginErr(d.detail || 'Login tidak tersedia. Periksa konfigurasi server.');
     } else {
-      openLogin(res.detail || res.error || 'Gagal login. Periksa username/password.');
+      showLoginErr(u === '' ? 'Username atau password salah.' : (d.detail || d.error || 'Username atau password salah.'));
     }
-  }).catch(e=>openLogin('Error: '+e.message))
-  .finally(()=>{ btn.disabled = false; btn.textContent = 'Masuk'; });
+  })
+  .catch(e=>showLoginErr('Koneksi ke server gagal. Pastikan backend berjalan.'))
+  .finally(()=>{ loginSubmitting = false; setLoginBusy(false); });
+  return false;
 }
 function doLogout(){
   if(window.fonnteTimer) clearInterval(window.fonnteTimer);
   localStorage.removeItem('apiToken');
-  CURRENT_USER = null; ADMIN_SCOPE = 'all';
+  CURRENT_USER = null; ADMIN_SCOPE = 'all'; loginSubmitting = false;
+  activeId = null; editingUserId = null; editingDoc = null;
+  filter = 'all'; kbFilter = ''; selectedFile = null;
+  CUSTOMERS.length = 0;
+  kbDocs = []; kbCats = {}; kbTotalChunks = 0; kbUpdated = '';
+  const uiName = document.getElementById('uiName'), uiRole = document.getElementById('uiRole'), uiAvatar = document.getElementById('uiAvatar');
+  if(uiName) uiName.textContent = '—';
+  if(uiRole) uiRole.textContent = '—';
+  if(uiAvatar) uiAvatar.textContent = '?';
   const b = document.getElementById('fonnteBanner'); if(b) b.style.display='none';
+  setPill('WS', false); setPill('Groq', false); setPill('Fonte', false);
   toast('Logout — sesi berakhir');
   openLogin('Sesi berakhir. Masuk kembali untuk lanjut.');
 }
 function checkAuth(){
-  setupSession();
+  const t = localStorage.getItem('apiToken');
+  if(t){ setupSession(); return; }
+  fetch(apiBase()+'health').then(r=>r.json()).then(h=>{
+    if(h && h.auth_enabled === false){
+      apiFetch(apiBase()+'api/v1/me').then(r=>r.json()).then(me=>{
+        if(me && me.status==='success' && me.data) enterApp(me.data);
+        else openLogin('Masuk untuk mengakses dashboard');
+      }).catch(()=>openLogin('Masuk untuk mengakses dashboard'));
+    } else {
+      openLogin('Masuk untuk mengakses dashboard');
+    }
+  }).catch(()=>openLogin('Tidak dapat terhubung ke server. Pastikan backend berjalan.'));
 }
 function refreshAll(){
   renderActivity(); loadCustomers(); loadKb(); loadHealth();
@@ -1519,12 +1637,11 @@ function connectWS(){
 }
 function handleIncomingChat(data){
   if(!data || data.type !== 'chat_incoming') return;
-  // Multi-user: filter pesan masuk sesuai scope user yang login
+  // Multi-user: hanya proses jika ada sesi aktif dan sesuai scope
   const oid = data.owner_id || null;
-  if(CURRENT_USER){
-    if(CURRENT_USER.role !== 'admin'){ if(oid !== CURRENT_USER.id) return; }
-    else if(ADMIN_SCOPE && ADMIN_SCOPE !== 'all'){ if(oid !== ADMIN_SCOPE) return; }
-  }
+  if(!CURRENT_USER) return;
+  if(CURRENT_USER.role !== 'admin'){ if(oid !== CURRENT_USER.id) return; }
+  else if(ADMIN_SCOPE && ADMIN_SCOPE !== 'all'){ if(oid !== ADMIN_SCOPE) return; }
   const a = data.analysis || {}, m = data.message || {};
   const phone = m.from || '6280000000000';
   const now = new Date().toTimeString().slice(0,5);
@@ -1631,8 +1748,9 @@ function handleIncomingChat(data){
 
 /* ============ INIT ============ */
 document.body.classList.add('logged-out'); // sembunyikan app sampai sesi valid
+const _ly = document.getElementById('loginYear'); if(_ly) _ly.textContent = new Date().getFullYear();
 connectWS();
-checkAuth(); // setupSession -> refreshAll (load semua data) bila token valid, else buka login
+checkAuth(); // validasi sesi: token valid => masuk; dev mode (auth mati) => masuk otomatis; else buka login
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){
     if(loginOpen){ return; }

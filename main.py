@@ -314,7 +314,8 @@ def create_token(user: dict) -> str:
 
 def _dev_user():
     return {"id":"dev","role":"admin","username":"dev","display_name":"Dev","is_active":True,
-            "fonnte_token":FONNTE_TOKEN,"fonnte_from_number":FONNTE_FROM,"groq_api_key":GROQ_API_KEY}
+            "fonnte_token":FONNTE_TOKEN,"fonnte_from_number":FONNTE_FROM,"groq_api_key":GROQ_API_KEY,
+            "created_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
 async def get_current_user(request: Request, authorization: str = Header(default="")) -> dict:
     """Dependency auth untuk semua /api/v1/*. Dev mode (tanpa key) => user dev admin."""
@@ -322,8 +323,6 @@ async def get_current_user(request: Request, authorization: str = Header(default
         return _dev_user()
     scheme, _, token = authorization.partition(" ")
     token = token.strip() if scheme.lower() == "bearer" else authorization.strip()
-    if not token and API_TOKEN:
-        return _dev_user()
     if not token:
         raise HTTPException(401, "Unauthorized")
     # API_TOKEN static => admin dev
@@ -361,7 +360,7 @@ def public_user(u: dict) -> dict:
     return {
         "id": u["id"], "username": u["username"], "role": u["role"],
         "display_name": u["display_name"], "is_active": u["is_active"],
-        "created_at": u["created_at"],
+        "created_at": u.get("created_at"),
         "fonnte_from_number": u.get("fonnte_from_number",""),
         "has_fonnte_token": bool(u.get("fonnte_token")),
         "has_groq_key": bool(u.get("groq_api_key")),
@@ -780,7 +779,13 @@ async def auth_login(req: Request):
     if not (pyjwt and JWT_SECRET_KEY):
         raise HTTPException(403, "Login disabled: set JWT_SECRET_KEY")
     d = await _read_json(req)
-    u, p = (d.get("username") or "").strip(), (d.get("password") or "").strip()
+    client_ip = req.client.host if req.client else "?"
+    u = (d.get("username") or "").strip()
+    p = d.get("password") or ""  # password tidak di-strip (spasi adalah karakter valid)
+    if not _rate_limited(f"login:{client_ip}:{u.lower()}", limit=10, window=300):
+        raise HTTPException(429, "Terlalu banyak percobaan login. Tunggu beberapa saat.")
+    if not u or not p:
+        raise HTTPException(400, "username & password wajib diisi")
     user = get_user_by_username(u)
     if not user or not verify_password(p, _pw_hash_for(u)):
         raise HTTPException(401, "Invalid credentials")
