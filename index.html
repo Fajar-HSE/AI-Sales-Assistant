@@ -651,12 +651,12 @@ body.logged-out .app{display:none}
     </div>
     <h2 id="loginTitle">Masuk</h2>
     <div class="sub">Sales AI Assistant — ICC Holding</div>
-    <form id="loginForm" autocomplete="on" onsubmit="return doLogin()" novalidate>
+    <div id="loginForm" autocomplete="on">
       <div class="field" id="loginUserField">
         <label for="loginUser">Username</label>
         <div class="input-wrap">
           <span class="in-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg></span>
-          <input id="loginUser" type="text" autocomplete="username" placeholder="masukkan username" oninput="clearFieldError('loginUser')">
+          <input id="loginUser" type="text" autocomplete="username" placeholder="masukkan username" oninput="clearFieldError('loginUser')" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <div class="field-err" id="loginUserErr"></div>
       </div>
@@ -664,7 +664,7 @@ body.logged-out .app{display:none}
         <label for="loginPass">Password</label>
         <div class="input-wrap">
           <span class="in-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-          <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••" oninput="clearFieldError('loginPass')">
+          <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••" oninput="clearFieldError('loginPass')" onkeydown="if(event.key==='Enter')doLogin()" onkeyup="clearFieldError('loginPass')">
           <button type="button" class="pw-toggle" id="pwToggle" onclick="togglePassword()" tabindex="-1" aria-label="Tampilkan / sembunyikan password" title="Tampilkan password">
             <svg id="pwEye" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg id="pwEyeOff" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"/></svg>
@@ -673,11 +673,11 @@ body.logged-out .app{display:none}
         <div class="field-err" id="loginPassErr"></div>
       </div>
       <div class="login-err" id="loginErr" style="display:none"></div>
-      <button class="btn btn-primary" id="loginBtn" type="submit">
+      <button class="btn btn-primary" id="loginBtn" type="button" onclick="doLogin()">
         <span id="loginBtnLabel">Masuk</span>
         <span class="spinner" id="loginBtnSpinner" style="display:none"></span>
       </button>
-    </form>
+    </div>
     <div class="login-foot">© <span id="loginYear"></span> ICC Holding</div>
   </div>
 </div>
