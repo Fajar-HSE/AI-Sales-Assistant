@@ -5,3 +5,9 @@ python-dotenv==1.0.0
 groq==1.6.0
 PyJWT==2.8.0
 supabase
+
+# --- Opsional: ekstraksi file Knowledge Base (install sesuai kebutuhan) ---
+pypdf==4.2.0
+python-docx==1.1.2
+openpyxl==3.1.2
+python-pptx==0.6.23
